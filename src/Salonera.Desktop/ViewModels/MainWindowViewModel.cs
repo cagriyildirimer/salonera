@@ -17,7 +17,8 @@ public sealed class MainWindowViewModel : ObservableObject
         CanManageCustomers = currentUser.User?.Permissions.Contains(Permissions.CustomersManage) == true;
         CanManageEvents = currentUser.User?.Permissions.Contains(Permissions.EventsManage) == true;
         CanManageSettings = currentUser.User?.Permissions.Contains(Permissions.SettingsManage) == true;
-        StatusText = "Altyapı hazır";
+        CanViewFinance = currentUser.User?.Permissions.Contains(Permissions.FinanceView) == true;
+        StatusText = "Hazır";
         StartupTime = clock.TurkeyNow.ToString(
             "dd MMMM yyyy HH:mm",
             CultureInfo.GetCultureInfo("tr-TR"));
@@ -36,6 +37,8 @@ public sealed class MainWindowViewModel : ObservableObject
     public bool CanManageEvents { get; }
 
     public bool CanManageSettings { get; }
+
+    public bool CanViewFinance { get; }
 
     public string StatusText { get; }
 

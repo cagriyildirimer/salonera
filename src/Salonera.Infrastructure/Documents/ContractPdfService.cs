@@ -194,7 +194,7 @@ public sealed class ContractPdfService(ISalesContractService contractService) : 
     private static string Money(decimal amount, CurrencyCode currency)
         => $"{amount.ToString("N2", TurkishCulture)} {currency.ToString().ToUpperInvariant()}";
 
-    private static void EnsureFontResolver()
+    internal static void EnsureFontResolver()
     {
         lock (FontLock)
         {

@@ -11,9 +11,10 @@ kaldığı yerden güvenli şekilde devam etmek için hazırlanmıştır.
 - Amaç: Düğün salonları ve organizasyon işletmeleri için salon yönetimi ve ön muhasebe
 - Arayüz dili: Türkçe
 - Hedef istemci: Windows 10 ve Windows 11 üzerinde WPF masaüstü uygulaması
-- Geliştirme ortamı: Linux; WPF görsel testleri Windows VM üzerinde yapılacak
+- Geliştirme ve ilk çalıştırma ortamı: Windows; WPF ekranları kullanıcıyla birlikte görsel olarak doğrulanacak
 - Kullanım şekli: Aynı şubedeki birden fazla bilgisayar yerel ağ üzerinden ortak veritabanı kullanacak
 - Veritabanı: SQL Server Express
+- Yerel SQL Server örnek adı: `SALONERA` (`localhost\SALONERA`)
 - Şube yaklaşımı: Her şube kendi yerel veritabanıyla çalışabilir; şubeler arası veri aktarımı sonraki sürüme bırakıldı
 - Kimlikler: Gelecekteki şube senkronizasyonuna uygun GUID
 - Roller: Yönetici, Satış, Muhasebe, Görüntüleme
@@ -107,11 +108,21 @@ kaldığı yerden güvenli şekilde devam etmek için hazırlanmıştır.
 - PDF açma ve Windows varsayılan PDF uygulaması üzerinden yazdırma akışı eklendi.
 - Takvim satırına çift tıklayarak organizasyon detayı açılır.
 
+### AŞAMA 6 - Tahsilatlar
+
+- Sözleşmeye bağlı kapora ve taksit planı, kısmi tahsilat ve kalan borç hesabı eklendi.
+- Sözleşme ve taksit bakiyesini aşan ödemeler engellenir.
+- Tahsilat iptali, kısmi iade ve finansal ters hareket kaydı eklendi.
+- Gecikmiş taksitler tahsilat ekranında uyarı olarak gösterilir.
+- Tahsilat makbuzu PDF olarak oluşturulur, açılır ve yazdırılır.
+- Nakit ve banka hesap hareketleri tahsilatla aynı veritabanı işleminde kaydedilir.
+- Gerçek `SALONERA` SQL Server örneğinde taksit, tahsilat, iade ve iptal akışı geçici test veritabanıyla doğrulandı.
+
 ## 4. Mevcut test durumu
 
 - Unit test: 2
-- Integration test: 18
-- Toplam: **20/20 başarılı**
+- Integration test: 20
+- Toplam: **22/22 başarılı**
 - Derleme: **0 hata, 0 uyarı**
 - Bekleyen EF model değişikliği: Yok
 - NuGet güvenlik taraması: Bilinen açık yok
@@ -131,6 +142,8 @@ Başlıca doğrulanan senaryolar:
 - İndirim, KDV ve döviz hesabı
 - Sözleşme durum geçmişi
 - Geçerli A4 PDF üretimi ve Türkçe karakterler
+- Taksit, kısmi ödeme, fazla ödeme, iade, iptal ve finansal hareketler
+- Gerçek SQL Server üzerinde tahsilat işlemi
 
 Standart doğrulama komutları:
 
@@ -146,12 +159,11 @@ dotnet tool run dotnet-ef migrations has-pending-model-changes \
 dotnet list Salonera.sln package --vulnerable --include-transitive
 ```
 
-Linux geliştirme ortamında .NET 10 SDK geçici olarak `/tmp/salonera-dotnet` altında
-kullanıldı. Kalıcı geliştirme ortamında .NET 10 SDK PATH üzerinde bulunmalıdır.
+Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Server örneği kullanılır.
 
 ## 5. Windows VM manuel test akışı
 
-1. SQL Server Express ve .NET 10 SDK kur.
+1. SQL Server `SALONERA` örneğini ve .NET 10 SDK'yı kur.
 2. `SALONERA_CONNECTION_STRING` veya `appsettings.Local.json` ile bağlantıyı ayarla.
 3. Migration'ı uygula veya uygulamayı başlatıp otomatik migration'ı çalıştır.
 4. İlk yönetici hesabını oluştur.
@@ -161,12 +173,14 @@ kullanıldı. Kalıcı geliştirme ortamında .NET 10 SDK PATH üzerinde bulunma
 8. Paket ve ek hizmet oluştur.
 9. Sözleşme ve PDF üret.
 10. PDF açma ve yazdırmayı doğrula.
+11. Tahsilat planı oluştur; kısmi ödeme, iade, iptal ve makbuz PDF'ini dene.
 
 Örnek sözleşme: `output/pdf/Salonera_Ornek_Sozlesme.pdf`
 
 ## 6. Bilinen eksikler
 
-- WPF ekranları Linux'ta çalıştırılamaz; Windows VM görsel testi gereklidir.
+- Yeni tahsilat ekranının kullanıcıyla görsel ve elle kullanım testi yapılmalıdır.
+- Windows çalışma kopyasında eski dosyaların CRLF satır sonları `.editorconfig` LF kuralıyla çakıştığından, tüm çözümde `dotnet format --verify-no-changes` satır sonu hataları verir. Yeni C# dosyaları hedefli biçimlendirmeden geçirildi.
 - Oturum kapatma butonu henüz yok.
 - Kullanıcı arayüzünden çoklu rol atama ve yönetici parola sıfırlama yok.
 - Takvim görsel zaman çizelgesi yerine liste tabanlıdır; sürükle-bırak yok.
@@ -176,17 +190,6 @@ kullanıldı. Kalıcı geliştirme ortamında .NET 10 SDK PATH üzerinde bulunma
 - Gerçek SQL Server üzerinde iki istemcili eşzamanlı çakışma testi Windows VM'de yapılmalıdır.
 
 ## 7. Kalan geliştirme planı
-
-### AŞAMA 6 - Tahsilatlar
-
-- Kapora ve taksit planı
-- Kısmi tahsilat
-- Kalan borç hesabı
-- Fazla ödeme kontrolü
-- Tahsilat iptali ve iade
-- Gecikmiş tahsilat uyarıları
-- Tahsilat makbuzu ve PDF/yazdırma
-- Kasa/banka hareketinin aynı transaction içinde oluşturulması
 
 ### AŞAMA 7 - Gelir, gider ve cari hesaplar
 
@@ -233,5 +236,6 @@ kullanıldı. Kalıcı geliştirme ortamında .NET 10 SDK PATH üzerinde bulunma
 
 ## 8. Devam noktası
 
-Bir sonraki ana çalışma **AŞAMA 6 - Tahsilatlar** olmalıdır. Her ana aşama sonunda
-derleme ve testler başarılı olmadan sonraki aşamaya geçilmemelidir.
+Bir sonraki ana çalışma **AŞAMA 7 - Gelir, gider ve cari hesaplar** olmalıdır. AŞAMA 6'nın
+tahsilat ekranı kullanıcıyla elle denenmelidir. Her ana aşama sonunda derleme ve testler
+başarılı olmadan sonraki aşamaya geçilmemelidir.

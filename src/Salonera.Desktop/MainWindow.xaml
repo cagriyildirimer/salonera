@@ -34,6 +34,9 @@
                 <Button DockPanel.Dock="Right" Margin="0,0,8,0" Padding="12,6"
                         Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}"
                         Content="Paket ve Sözleşme" Click="OpenSalesClick" />
+                <Button DockPanel.Dock="Right" Margin="0,0,8,0" Padding="12,6"
+                        Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        Content="Tahsilatlar" Click="OpenPaymentsClick" />
                 <StackPanel>
                 <TextBlock FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
                            Text="{Binding ApplicationName}" />
@@ -53,7 +56,7 @@
                            Foreground="{StaticResource TextBrush}" Text="Salonera hazır" />
                 <TextBlock MaxWidth="560" TextAlignment="Center" TextWrapping="Wrap"
                            FontSize="14" Foreground="#64748B"
-                           Text="Uygulama altyapısı başarıyla yüklendi. İş modülleri sonraki aşamalarda eklenecektir." />
+                           Text="Müşterileri, takvimi, sözleşmeleri ve tahsilatları üst menüden yönetebilirsiniz." />
             </StackPanel>
         </Border>
 

@@ -9,7 +9,7 @@ public sealed class SaloneraDbContextFactory : IDesignTimeDbContextFactory<Salon
     public SaloneraDbContext CreateDbContext(string[] args)
     {
         var connectionString = Environment.GetEnvironmentVariable("SALONERA_CONNECTION_STRING")
-            ?? "Server=localhost;Database=Salonera;Trusted_Connection=True;TrustServerCertificate=True;";
+            ?? "Server=localhost\\SALONERA;Database=Salonera;Trusted_Connection=True;TrustServerCertificate=True;";
         var options = new DbContextOptionsBuilder<SaloneraDbContext>()
             .UseSqlServer(connectionString, sql => sql.MigrationsAssembly(typeof(SaloneraDbContext).Assembly.FullName))
             .Options;

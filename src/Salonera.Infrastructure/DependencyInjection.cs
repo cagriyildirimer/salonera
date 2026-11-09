@@ -9,6 +9,7 @@ using Salonera.Application.Features.Catalogs;
 using Salonera.Application.Features.Customers;
 using Salonera.Application.Features.Events;
 using Salonera.Application.Features.Sales;
+using Salonera.Application.Features.Payments;
 using Salonera.Infrastructure.Configuration;
 using Salonera.Infrastructure.Documents;
 using Salonera.Infrastructure.Features;
@@ -48,6 +49,8 @@ public static class DependencyInjection
         services.AddSingleton<IContractPricingService, ContractPricingService>();
         services.AddSingleton<IPackageService, PackageService>();
         services.AddSingleton<ISalesContractService, SalesContractService>();
+        services.AddSingleton<IPaymentService, PaymentService>();
+        services.AddSingleton<IReceiptPdfService, ReceiptPdfService>();
         services.AddSingleton<IContractPdfService, ContractPdfService>();
 
         var connectionString = configuration.GetConnectionString("SaloneraDatabase")

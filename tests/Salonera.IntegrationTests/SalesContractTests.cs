@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Salonera.Application.Common.Security;
 using Salonera.Application.Common.Time;
 using Salonera.Application.Features.Sales;
+using Salonera.Application.Features.Payments;
 using Salonera.Domain.Entities;
 using Salonera.Domain.Enums;
 using Salonera.Infrastructure.Documents;
@@ -95,6 +97,109 @@ public sealed class SalesContractTests
         }
     }
 
+    [Fact]
+    public async Task PaymentsPreserveBalanceAndCreateReversingAccountMovements()
+    {
+        var setup = await CreateSetupAsync();
+        await using var provider = setup.Provider;
+        var contractId = await provider.GetRequiredService<ISalesContractService>().CreateContractAsync(
+            new CreateContractRequest(setup.EventId, setup.PackageId, [], 0m, 0m, CurrencyCode.Try, 1m));
+        var payments = provider.GetRequiredService<IPaymentService>();
+        await payments.SetPlanAsync(contractId,
+        [new NewInstallment(new DateOnly(2026, 11, 10), 200m),
+         new NewInstallment(new DateOnly(2026, 12, 10), 800m)]);
+        var initial = await payments.GetBalanceAsync(contractId);
+        var firstPlan = initial.Installments[0].Id;
+        var key = Guid.NewGuid();
+        var receiptId = await payments.CollectAsync(
+            new CollectPaymentRequest(contractId, firstPlan, 100m, 1m, PaymentMethod.Cash, key));
+        Assert.Equal(receiptId, await payments.CollectAsync(
+            new CollectPaymentRequest(contractId, firstPlan, 100m, 1m, PaymentMethod.Cash, key)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => payments.CollectAsync(
+            new CollectPaymentRequest(contractId, firstPlan, 101m, 1m, PaymentMethod.Cash, Guid.NewGuid())));
+        var partial = await payments.GetBalanceAsync(contractId);
+        Assert.Equal(900m, partial.Remaining);
+        Assert.Equal(PaymentStatus.PartiallyPaid, partial.Installments[0].Status);
+        await payments.RefundAsync(new RefundPaymentRequest(receiptId, 40m, "Müşteri talebi"));
+        var refunded = await payments.GetBalanceAsync(contractId);
+        Assert.Equal(940m, refunded.Remaining);
+        Assert.Equal(60m, refunded.Installments[0].Paid);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => payments.CancelReceiptAsync(receiptId, "Yanlış kayıt"));
+        var secondId = await payments.CollectAsync(
+            new CollectPaymentRequest(contractId, firstPlan, 50m, 1m, PaymentMethod.Bank, Guid.NewGuid()));
+        await payments.CancelReceiptAsync(secondId, "Yanlış hesap");
+        var final = await payments.GetBalanceAsync(contractId);
+        Assert.Equal(940m, final.Remaining);
+        var pdfPath = Path.Combine(Path.GetTempPath(), $"salonera-receipt-{Guid.NewGuid():N}.pdf");
+        try
+        {
+            await new ReceiptPdfService(payments).GenerateAsync(receiptId, pdfPath);
+            Assert.Equal("%PDF-"u8.ToArray(), (await File.ReadAllBytesAsync(pdfPath))[..5]);
+        }
+        finally
+        {
+            if (File.Exists(pdfPath)) File.Delete(pdfPath);
+        }
+        await using var scope = provider.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        var movements = await db.Set<FinancialTransaction>().ToListAsync();
+        Assert.Equal(4, movements.Count);
+        Assert.Equal(60m, movements.Sum(x => x.Amount));
+    }
+
+    [Fact]
+    public async Task SqlServerPaymentWritesReceiptAndAccountMovementTogether()
+    {
+        var server = Environment.GetEnvironmentVariable("SALONERA_SQL_TEST_SERVER");
+        if (string.IsNullOrWhiteSpace(server)) return;
+        var databaseName = $"SaloneraTest_{Guid.NewGuid():N}";
+        var builder = new SqlConnectionStringBuilder
+        {
+            DataSource = server,
+            InitialCatalog = databaseName,
+            IntegratedSecurity = true,
+            TrustServerCertificate = true,
+            MultipleActiveResultSets = true,
+        };
+        try
+        {
+            var setup = await CreateSetupAsync(builder.ConnectionString);
+            await using var provider = setup.Provider;
+            var contractId = await provider.GetRequiredService<ISalesContractService>().CreateContractAsync(
+                new CreateContractRequest(setup.EventId, setup.PackageId, [], 0m, 0m, CurrencyCode.Try, 1m));
+            var payments = provider.GetRequiredService<IPaymentService>();
+            await payments.SetPlanAsync(contractId,
+            [new NewInstallment(new DateOnly(2026, 11, 10), 200m),
+             new NewInstallment(new DateOnly(2026, 12, 10), 800m)]);
+            var planId = (await payments.GetBalanceAsync(contractId)).Installments[0].Id;
+            var receiptId = await payments.CollectAsync(new CollectPaymentRequest(
+                contractId, planId, 200m, 1m, PaymentMethod.Cash, Guid.NewGuid()));
+            var balance = await payments.GetBalanceAsync(contractId);
+            Assert.Equal(800m, balance.Remaining);
+            Assert.Contains(balance.Receipts, x => x.Id == receiptId);
+            await payments.RefundAsync(new RefundPaymentRequest(receiptId, 50m, "İade testi"));
+            var secondId = await payments.CollectAsync(new CollectPaymentRequest(
+                contractId, null, 50m, 1m, PaymentMethod.Bank, Guid.NewGuid()));
+            await payments.CancelReceiptAsync(secondId, "İptal testi");
+            Assert.Equal(850m, (await payments.GetBalanceAsync(contractId)).Remaining);
+            Assert.Equal(150m, (await payments.GetBalanceAsync(contractId)).Installments[0].Paid);
+            await using var scope = provider.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+            Assert.Equal(4, await db.Set<FinancialTransaction>().CountAsync());
+            Assert.Single(await db.CashAccounts.ToListAsync());
+        }
+        finally
+        {
+            var master = new SqlConnectionStringBuilder(builder.ConnectionString)
+            { InitialCatalog = "master", Pooling = false };
+            await using var connection = new SqlConnection(master.ConnectionString);
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"IF DB_ID('{databaseName}') IS NOT NULL BEGIN ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{databaseName}]; END";
+            await command.ExecuteNonQueryAsync();
+        }
+    }
+
     private static ContractDocument SampleDocument()
     {
         var lines = new[]
@@ -129,7 +234,7 @@ public sealed class SalesContractTests
             totals);
     }
 
-    private static async Task<SalesSetup> CreateSetupAsync()
+    private static async Task<SalesSetup> CreateSetupAsync(string? sqlConnectionString = null)
     {
         var databaseName = Guid.NewGuid().ToString("N");
         var services = new ServiceCollection();
@@ -141,12 +246,18 @@ public sealed class SalesContractTests
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
         services.AddSingleton<IContractPricingService, ContractPricingService>();
         services.AddSingleton<ISalesContractService, SalesContractService>();
-        services.AddDbContext<SaloneraDbContext>(options => options.UseInMemoryDatabase(databaseName));
+        services.AddSingleton<IPaymentService, PaymentService>();
+        services.AddDbContext<SaloneraDbContext>(options =>
+        {
+            if (sqlConnectionString is null) options.UseInMemoryDatabase(databaseName);
+            else options.UseSqlServer(sqlConnectionString);
+        });
         var provider = services.BuildServiceProvider(validateScopes: true);
 
         var passwordService = provider.GetRequiredService<IPasswordService>();
         await using var scope = provider.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        if (sqlConnectionString is not null) await context.Database.MigrateAsync();
         var branch = new Branch { Code = "TEST", Name = "Anonim Test Şubesi" };
         var hall = new Hall { Branch = branch, Code = "A", Name = "Salon A", Capacity = 500 };
         var customer = new Customer { Branch = branch, FirstName = "Anonim", LastName = "Müşteri", Phone = "05000000000" };
@@ -160,7 +271,9 @@ public sealed class SalesContractTests
             CostPrice = 600m,
         };
         var extra = new ExtraService { Branch = branch, Name = "Fotoğraf", SalesPrice = 200m, CostPrice = 100m };
-        var role = new Role { Code = RoleCodes.Administrator, Name = "Yönetici" };
+        var role = sqlConnectionString is null
+            ? new Role { Code = RoleCodes.Administrator, Name = "Yönetici" }
+            : await context.Roles.SingleAsync(item => item.Code == RoleCodes.Administrator);
         var user = new User
         {
             Branch = branch,
@@ -182,7 +295,8 @@ public sealed class SalesContractTests
             GuestCount = 300,
             Status = EventStatus.Option,
         };
-        context.AddRange(branch, hall, customer, eventType, package, extra, role, user, organizationEvent);
+        context.AddRange(branch, hall, customer, eventType, package, extra, user, organizationEvent);
+        if (sqlConnectionString is null) context.Add(role);
         await context.SaveChangesAsync();
 
         var login = await provider.GetRequiredService<IAuthenticationService>().LoginAsync("admin", "Anonim!Test2026");

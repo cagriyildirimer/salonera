@@ -15,7 +15,7 @@ public partial class App : System.Windows.Application
 {
     private IHost? _host;
 
-    protected override void OnStartup(StartupEventArgs e)
+    protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
@@ -23,11 +23,11 @@ public partial class App : System.Windows.Application
         {
             SetTurkishCulture();
             _host = CreateHostBuilder().Build();
-            _host.Start();
+            await _host.StartAsync();
 
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var authenticationService = _host.Services.GetRequiredService<IAuthenticationService>();
-            if (!authenticationService.HasAnyUserAsync().GetAwaiter().GetResult())
+            if (!await authenticationService.HasAnyUserAsync())
             {
                 var setupWindow = _host.Services.GetRequiredService<InitialAdministratorWindow>();
                 if (setupWindow.ShowDialog() != true)
@@ -146,6 +146,8 @@ public partial class App : System.Windows.Application
                 services.AddTransient<CalendarWindow>();
                 services.AddTransient<SalesContractViewModel>();
                 services.AddTransient<SalesContractWindow>();
+                services.AddTransient<PaymentViewModel>();
+                services.AddTransient<PaymentWindow>();
             });
     }
 
