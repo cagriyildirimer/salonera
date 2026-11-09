@@ -148,6 +148,10 @@ public partial class App : System.Windows.Application
                 services.AddTransient<SalesContractWindow>();
                 services.AddTransient<PaymentViewModel>();
                 services.AddTransient<PaymentWindow>();
+                services.AddTransient<FinanceViewModel>();
+                services.AddTransient<FinanceWindow>();
+                services.AddTransient<ReportsViewModel>();
+                services.AddTransient<ReportsWindow>();
             });
     }
 

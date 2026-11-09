@@ -37,6 +37,12 @@ public partial class MainWindow : Window
     private void OpenPaymentsClick(object sender, RoutedEventArgs e)
         => ShowOwnedWindow(_serviceProvider.GetRequiredService<PaymentWindow>());
 
+    private void OpenFinanceClick(object sender, RoutedEventArgs e)
+        => ShowOwnedWindow(_serviceProvider.GetRequiredService<FinanceWindow>());
+
+    private void OpenReportsClick(object sender, RoutedEventArgs e)
+        => ShowOwnedWindow(_serviceProvider.GetRequiredService<ReportsWindow>());
+
     private void ShowOwnedWindow(Window window)
     {
         window.Owner = this;

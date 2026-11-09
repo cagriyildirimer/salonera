@@ -45,7 +45,8 @@ public sealed record ContractPaymentListItem(Guid Id, string ContractNumber, str
 public sealed record NewInstallment(DateOnly DueDate, decimal Amount);
 
 public sealed record CollectPaymentRequest(Guid ContractId, Guid? PaymentPlanId, decimal Amount,
-    decimal ExchangeRate, PaymentMethod Method, Guid IdempotencyKey);
+    decimal ExchangeRate, PaymentMethod Method, Guid IdempotencyKey,
+    Guid? FinancialAccountId = null);
 
 public sealed record RefundPaymentRequest(Guid ReceiptId, decimal Amount, string Reason);
 

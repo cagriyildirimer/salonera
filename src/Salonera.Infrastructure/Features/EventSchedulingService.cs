@@ -65,6 +65,17 @@ public sealed class EventSchedulingService(
         authorizationService.EnsurePermission(Permissions.EventsManage);
         ValidateRequest(request);
         var user = RequiredUser();
+        await using var strategyScope = scopeFactory.CreateAsyncScope();
+        var strategyContext = strategyScope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(() => ScheduleCoreAsync(request, user, cancellationToken));
+    }
+
+    private async Task<Guid> ScheduleCoreAsync(
+        ScheduleEventRequest request,
+        AuthenticatedUser user,
+        CancellationToken cancellationToken)
+    {
         await using var scope = scopeFactory.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
         await using var transaction = await BeginSerializableTransactionAsync(context, cancellationToken);

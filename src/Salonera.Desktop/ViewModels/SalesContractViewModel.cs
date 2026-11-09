@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using Microsoft.Extensions.Logging;
 using Salonera.Application.Common.Time;
 using Salonera.Application.Features.Events;
 using Salonera.Application.Features.Sales;
@@ -13,7 +14,8 @@ public sealed class SalesContractViewModel(
     IEventSchedulingService eventSchedulingService,
     ISalesContractService contractService,
     IContractPdfService pdfService,
-    IClock clock) : ObservableObject
+    IClock clock,
+    ILogger<SalesContractViewModel> logger) : ObservableObject
 {
     private PackageListItem? _selectedPackage;
     private CalendarEventItem? _selectedEvent;
@@ -100,31 +102,55 @@ public sealed class SalesContractViewModel(
             return false;
         }
 
+        Guid? contractId = null;
         try
         {
-            var contractId = await contractService.CreateContractAsync(new CreateContractRequest(
-                SelectedEvent.Id,
-                SelectedPackage.Id,
-                extraServiceIds,
-                discount,
-                vatRate,
-                Currency,
-                exchangeRate));
-            var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var outputPath = Path.Combine(documents, "Salonera", "Sozlesmeler", $"sozlesme-{contractId:N}.pdf");
-            LastPdfPath = await pdfService.GenerateAsync(contractId, outputPath);
-            Message = "Sözleşme ve PDF başarıyla oluşturuldu.";
+            contractId = await contractService.FindContractIdForEventAsync(SelectedEvent.Id);
+            var existingContract = contractId.HasValue;
+            if (!existingContract)
+            {
+                contractId = await contractService.CreateContractAsync(new CreateContractRequest(
+                    SelectedEvent.Id,
+                    SelectedPackage.Id,
+                    extraServiceIds,
+                    discount,
+                    vatRate,
+                    Currency,
+                    exchangeRate));
+            }
+
+            var localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var outputPath = Path.Combine(localData, "Salonera", "Sozlesmeler", $"sozlesme-{contractId.Value:N}.pdf");
+            LastPdfPath = await pdfService.GenerateAsync(contractId.Value, outputPath);
+            Message = existingContract
+                ? "Mevcut sözleşmenin PDF'si oluşturuldu."
+                : "Sözleşme ve PDF başarıyla oluşturuldu.";
             await LoadAsync();
             return true;
         }
         catch (InvalidOperationException exception)
         {
-            Message = exception.Message;
+            Message = contractId.HasValue
+                ? $"Sözleşme kayıtlı, ancak PDF oluşturulamadı: {exception.Message}"
+                : exception.Message;
             return false;
         }
         catch (ArgumentException exception)
         {
             Message = exception.Message;
+            return false;
+        }
+        catch (Exception exception)
+        {
+            logger.Log(
+                LogLevel.Error,
+                new EventId(3002, "ContractPdfFailed"),
+                "Sözleşme veya PDF oluşturulamadı.",
+                exception,
+                static (state, _) => state);
+            Message = contractId.HasValue
+                ? "Sözleşme kayıtlı, ancak PDF oluşturulamadı. Ayrıntılar uygulama günlüğüne kaydedildi."
+                : "Sözleşme oluşturulamadı. Ayrıntılar uygulama günlüğüne kaydedildi.";
             return false;
         }
     }

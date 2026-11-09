@@ -20,7 +20,11 @@ dotnet run --project src/Salonera.Desktop/Salonera.Desktop.csproj
 ```
 
 İlk açılışta veritabanı otomatik hazırlanır ve ilk yönetici hesabı oluşturulur.
-Tahsilatlar ekranı, sözleşme oluşturulduktan sonra kullanılabilir.
+Tahsilatlar ekranı, sözleşme oluşturulduktan sonra kullanılabilir. Finans ve Cari Hesaplar
+ekranında kasa/banka hesapları, gelir-gider, tedarikçi ve virman işlemleri bulunur.
+Ön Muhasebe ve Raporlar ekranında günlük kasa, gelir-gider, organizasyon kârlılığı,
+müşteri ve tedarikçi bakiyeleri tarih aralığıyla görüntülenir; CSV, Excel ve PDF
+olarak dışa aktarılır. Varsayılan çıktı klasörü `%LOCALAPPDATA%\Salonera\Raporlar`dır.
 
 Yerel makineye özel ve gizli ayarlar `appsettings.Local.json` dosyasına yazılmalı;
 bu dosya kaynak kontrolüne alınmaz.

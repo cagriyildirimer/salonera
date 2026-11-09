@@ -24,6 +24,17 @@ public sealed class SalesContractService(
         authorizationService.EnsurePermission(Permissions.EventsManage);
         ArgumentNullException.ThrowIfNull(request);
         var user = RequiredUser();
+        await using var strategyScope = scopeFactory.CreateAsyncScope();
+        var strategyContext = strategyScope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        var strategy = strategyContext.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(() => CreateContractCoreAsync(request, user, cancellationToken));
+    }
+
+    private async Task<Guid> CreateContractCoreAsync(
+        CreateContractRequest request,
+        AuthenticatedUser user,
+        CancellationToken cancellationToken)
+    {
         await using var scope = scopeFactory.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
         await using var transaction = await BeginTransactionAsync(context, cancellationToken);
@@ -178,6 +189,20 @@ public sealed class SalesContractService(
             contract.Event.GuestCount,
             services,
             totals);
+    }
+
+    public async Task<Guid?> FindContractIdForEventAsync(
+        Guid eventId,
+        CancellationToken cancellationToken = default)
+    {
+        authorizationService.EnsurePermission(Permissions.DashboardView);
+        var user = RequiredUser();
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var context = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        return await context.Contracts.AsNoTracking()
+            .Where(item => item.EventId == eventId && item.BranchId == user.BranchId)
+            .Select(item => (Guid?)item.Id)
+            .SingleOrDefaultAsync(cancellationToken);
     }
 
     private static async Task<IDbContextTransaction?> BeginTransactionAsync(

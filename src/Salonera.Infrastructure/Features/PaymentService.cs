@@ -43,7 +43,9 @@ public sealed class PaymentService(
         var plans = await db.PaymentPlans.AsNoTracking().Where(x => x.ContractId == contractId)
             .OrderBy(x => x.DueDate).ToListAsync(cancellationToken);
         var paid = receipts.Where(x => !x.IsCancelled).Sum(x => x.Amount);
-        var returned = refunds.Sum(x => x.Amount);
+        var cancelledReceiptIds = receipts.Where(x => x.IsCancelled).Select(x => x.Id).ToHashSet();
+        var returned = refunds.Where(x => !x.CollectionId.HasValue ||
+            !cancelledReceiptIds.Contains(x.CollectionId.Value)).Sum(x => x.Amount);
         var refundByReceipt = refunds.Where(x => x.CollectionId.HasValue)
             .GroupBy(x => x.CollectionId!.Value).ToDictionary(x => x.Key, x => x.Sum(y => y.Amount));
         var netByPlan = receipts.Where(x => !x.IsCancelled && x.PaymentPlanId.HasValue)
@@ -130,7 +132,9 @@ public sealed class PaymentService(
         {
             if (duplicate.BranchId != user.BranchId || duplicate.ContractId != request.ContractId ||
                 duplicate.Amount != request.Amount || duplicate.PaymentPlanId != request.PaymentPlanId ||
-                duplicate.PaymentMethod != request.Method || duplicate.ExchangeRate != request.ExchangeRate)
+                duplicate.PaymentMethod != request.Method || duplicate.ExchangeRate != request.ExchangeRate ||
+                (request.FinancialAccountId.HasValue &&
+                 duplicate.FinancialAccountId != request.FinancialAccountId))
                 throw new InvalidOperationException("İşlem anahtarı farklı bir tahsilatta kullanılmış.");
             return duplicate.Id;
         }
@@ -139,7 +143,8 @@ public sealed class PaymentService(
             throw new InvalidOperationException("İptal edilmiş organizasyona tahsilat yapılamaz.");
         var collected = await db.Collections.Where(x => x.ContractId == contract.Id && !x.IsCancelled)
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
-        var refunded = await db.Refunds.Where(x => x.ContractId == contract.Id && !x.IsCancelled)
+        var refunded = await db.Refunds.Where(x => x.ContractId == contract.Id && !x.IsCancelled &&
+                (x.CollectionId == null || !x.Collection!.IsCancelled))
             .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
         if (request.Amount > contract.NetAmount - collected + refunded)
             throw new InvalidOperationException("Tahsilat kalan borcu aşamaz.");
@@ -152,12 +157,13 @@ public sealed class PaymentService(
             var planCollected = await db.Collections.Where(x => x.PaymentPlanId == plan.Id && !x.IsCancelled)
                 .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
             var planRefunded = await db.Refunds.Where(x => x.Collection != null &&
-                x.Collection.PaymentPlanId == plan.Id && !x.IsCancelled)
+                x.Collection.PaymentPlanId == plan.Id && !x.Collection.IsCancelled && !x.IsCancelled)
                 .SumAsync(x => (decimal?)x.Amount, cancellationToken) ?? 0m;
             if (request.Amount > plan.Amount - planCollected + planRefunded)
                 throw new InvalidOperationException("Tahsilat seçilen taksitin kalan tutarını aşamaz.");
         }
-        var account = await AccountAsync(db, user.BranchId, contract.Currency, request.Method, cancellationToken);
+        var account = await AccountAsync(db, user.BranchId, contract.Currency, request.Method,
+            request.FinancialAccountId, cancellationToken);
         var amountTry = decimal.Round(request.Amount * request.ExchangeRate, 2);
         var receipt = new PaymentReceipt
         {
@@ -198,24 +204,25 @@ public sealed class PaymentService(
         var receipt = await db.Collections.SingleAsync(x => x.Id == receiptId && x.BranchId == user.BranchId,
             cancellationToken);
         if (receipt.IsCancelled) return;
-        if (await db.Refunds.AnyAsync(x => x.CollectionId == receiptId && !x.IsCancelled, cancellationToken))
-            throw new InvalidOperationException("İade yapılmış tahsilat iptal edilemez.");
+        var refunds = await db.Refunds.Where(x => x.CollectionId == receiptId && !x.IsCancelled)
+            .ToListAsync(cancellationToken);
+        var remaining = receipt.Amount - refunds.Sum(x => x.Amount);
         receipt.IsCancelled = true;
         receipt.CancellationReason = reason.Trim();
         var original = await db.Set<FinancialTransaction>().SingleAsync(x =>
             x.SourceType == nameof(PaymentReceipt) && x.SourceId == receiptId &&
             x.TransactionType == FinancialTransactionType.Collection, cancellationToken);
-        db.Set<FinancialTransaction>().Add(new FinancialTransaction
+        if (remaining > 0m) db.Set<FinancialTransaction>().Add(new FinancialTransaction
         {
             BranchId = user.BranchId,
             AccountType = original.AccountType,
             AccountId = original.AccountId,
             TransactionType = FinancialTransactionType.Reversal,
             TransactionDate = clock.UtcNow,
-            Amount = -original.Amount,
+            Amount = -remaining,
             Currency = original.Currency,
             ExchangeRate = original.ExchangeRate,
-            AmountTry = -original.AmountTry,
+            AmountTry = -(original.AmountTry - refunds.Sum(x => x.AmountTry)),
             SourceType = nameof(PaymentReceipt),
             SourceId = receipt.Id,
             ReversalTransactionId = original.Id,
@@ -224,7 +231,7 @@ public sealed class PaymentService(
         if (receipt.PaymentPlanId.HasValue)
         {
             var plan = await db.PaymentPlans.SingleAsync(x => x.Id == receipt.PaymentPlanId, cancellationToken);
-            await UpdatePlanAsync(db, plan, -receipt.Amount, cancellationToken);
+            await UpdatePlanAsync(db, plan, -remaining, cancellationToken);
         }
         db.AuditLogs.Add(Audit(user, nameof(PaymentReceipt), receipt.Id, "PAYMENT_CANCELLED"));
         await db.SaveChangesAsync(cancellationToken);
@@ -305,7 +312,7 @@ public sealed class PaymentService(
         var paid = await db.Collections.Where(x => x.PaymentPlanId == plan.Id && !x.IsCancelled)
             .SumAsync(x => (decimal?)x.Amount, ct) ?? 0m;
         var refunded = await db.Refunds.Where(x => x.Collection != null &&
-            x.Collection.PaymentPlanId == plan.Id && !x.IsCancelled)
+            x.Collection.PaymentPlanId == plan.Id && !x.Collection.IsCancelled && !x.IsCancelled)
             .SumAsync(x => (decimal?)x.Amount, ct) ?? 0m;
         var net = paid - refunded + delta;
         plan.Status = net >= plan.Amount ? PaymentStatus.Paid
@@ -313,10 +320,24 @@ public sealed class PaymentService(
     }
 
     private static async Task<(Guid Id, AccountType Type)> AccountAsync(SaloneraDbContext db, Guid branchId,
-        CurrencyCode currency, PaymentMethod method, CancellationToken ct)
+        CurrencyCode currency, PaymentMethod method, Guid? requestedId, CancellationToken ct)
     {
         var type = method == PaymentMethod.Cash ? AccountType.Cash : AccountType.Bank;
         await LockAccountAsync(db, branchId, type, currency, ct);
+        if (requestedId.HasValue)
+        {
+            if (type == AccountType.Cash)
+            {
+                var selected = await db.CashAccounts.SingleOrDefaultAsync(x =>
+                    x.Id == requestedId && x.BranchId == branchId && x.Currency == currency && x.IsActive, ct);
+                if (selected is null) throw new InvalidOperationException("Seçilen kasa hesabı uygun değil.");
+                return (selected.Id, type);
+            }
+            var bank = await db.BankAccounts.SingleOrDefaultAsync(x =>
+                x.Id == requestedId && x.BranchId == branchId && x.Currency == currency && x.IsActive, ct);
+            if (bank is null) throw new InvalidOperationException("Seçilen banka hesabı uygun değil.");
+            return (bank.Id, type);
+        }
         var code = type == AccountType.Cash ? $"KASA-{currency}" : $"BANKA-{currency}";
         if (type == AccountType.Cash)
         {

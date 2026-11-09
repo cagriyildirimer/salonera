@@ -2,11 +2,14 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using Salonera.Application.Features.Payments;
+using Salonera.Application.Features.Finance;
+using Salonera.Application.Common.Security;
 using Salonera.Domain.Enums;
 
 namespace Salonera.Desktop.ViewModels;
 
-public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfService receiptPdf) : ObservableObject
+public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfService receiptPdf,
+    IFinanceService finance, ICurrentUser currentUser) : ObservableObject
 {
     private static readonly CultureInfo Turkish = CultureInfo.GetCultureInfo("tr-TR");
     private ContractPaymentListItem? _selectedContract;
@@ -24,17 +27,21 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
     private string _reason = string.Empty;
     private string _message = string.Empty;
     private PaymentMethodOption? _selectedMethod;
+    private FinancialAccountItem? _selectedAccount;
     private string? _lastPdfPath;
 
     public ObservableCollection<ContractPaymentListItem> Contracts { get; } = [];
     public ObservableCollection<InstallmentItem> Installments { get; } = [];
     public ObservableCollection<ReceiptItem> Receipts { get; } = [];
+    public ObservableCollection<FinancialAccountItem> Accounts { get; } = [];
     public ObservableCollection<NewInstallment> PlanDraft { get; } = [];
     public IReadOnlyList<PaymentMethodOption> Methods { get; } =
     [
         new(PaymentMethod.Cash, "Nakit"), new(PaymentMethod.Bank, "Banka"),
         new(PaymentMethod.CreditCard, "Kredi kartı"), new(PaymentMethod.Other, "Diğer"),
     ];
+    public bool CanManageFinance { get; } =
+        currentUser.User?.Permissions.Contains(Permissions.FinanceManage) == true;
     public ContractPaymentListItem? SelectedContract { get => _selectedContract; set => SetProperty(ref _selectedContract, value); }
     public InstallmentItem? SelectedInstallment { get => _selectedInstallment; set => SetProperty(ref _selectedInstallment, value); }
     public ReceiptItem? SelectedReceipt { get => _selectedReceipt; set => SetProperty(ref _selectedReceipt, value); }
@@ -54,6 +61,11 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
         get => _selectedMethod ?? Methods[0];
         set => SetProperty(ref _selectedMethod, value);
     }
+    public FinancialAccountItem? SelectedAccount
+    {
+        get => _selectedAccount;
+        set => SetProperty(ref _selectedAccount, value);
+    }
     public string? LastPdfPath { get => _lastPdfPath; private set => SetProperty(ref _lastPdfPath, value); }
 
     public async Task LoadAsync()
@@ -62,6 +74,7 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
         {
             var previousId = SelectedContract?.Id;
             Replace(Contracts, await payments.ListContractsAsync());
+            Replace(Accounts, (await finance.ListAccountsAsync()).Where(x => x.IsActive));
             SelectedContract = Contracts.FirstOrDefault(x => x.Id == previousId) ?? Contracts.FirstOrDefault();
             await RefreshAsync();
         }
@@ -136,11 +149,15 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
         {
             var receiptId = await payments.CollectAsync(new CollectPaymentRequest(
                 SelectedContract.Id, SelectedInstallment?.Id, amount, rate,
-                SelectedMethod?.Value ?? PaymentMethod.Cash, Guid.NewGuid()));
+                SelectedMethod?.Value ?? PaymentMethod.Cash, Guid.NewGuid(),
+                SelectedAccount?.Id));
             await RefreshAsync();
             Amount = string.Empty;
-            Message = "Tahsilat kaydedildi. Makbuzu listeden seçip açabilirsiniz.";
             SelectedReceipt = Receipts.FirstOrDefault(x => x.Id == receiptId);
+            var pdfPath = await CreatePdfAsync();
+            Message = pdfPath is null
+                ? "Tahsilat kaydedildi, ancak makbuz PDF oluşturulamadı. Makbuzu seçip yeniden deneyin."
+                : "Tahsilat ve makbuz PDF oluşturuldu. Makbuzu listeden açabilirsiniz.";
         }
         catch (Exception exception) { Message = exception.Message; }
     }
@@ -150,7 +167,7 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
         if (SelectedReceipt is null) { Message = "Önce bir makbuz seçin."; return null; }
         try
         {
-            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "Salonera", "Makbuzlar", $"makbuz-{SelectedReceipt.Id:N}.pdf");
             LastPdfPath = await receiptPdf.GenerateAsync(SelectedReceipt.Id, path);
             Message = "Makbuz PDF oluşturuldu.";
@@ -163,6 +180,8 @@ public sealed class PaymentViewModel(IPaymentService payments, IReceiptPdfServic
     {
         if (SelectedReceipt is null || string.IsNullOrWhiteSpace(Reason))
         { Message = "Makbuz ve iptal nedeni seçin."; return; }
+        if (SelectedReceipt.IsCancelled)
+        { Message = "Bu tahsilat zaten iptal edilmiş."; return; }
         try
         {
             await payments.CancelReceiptAsync(SelectedReceipt.Id, Reason);

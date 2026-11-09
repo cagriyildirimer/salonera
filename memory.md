@@ -118,11 +118,31 @@ kaldığı yerden güvenli şekilde devam etmek için hazırlanmıştır.
 - Nakit ve banka hesap hareketleri tahsilatla aynı veritabanı işleminde kaydedilir.
 - Gerçek `SALONERA` SQL Server örneğinde taksit, tahsilat, iade ve iptal akışı geçici test veritabanıyla doğrulandı.
 
+### AŞAMA 7 - Gelir, gider ve cari hesaplar
+
+- Kasa ve banka hesabı açma, bakiyeyi ve hareketleri izleme, aynı para birimindeki hesaplar arasında virman eklendi.
+- Gelir ve gider kategorileri, gelir kaydı, gider kaydı ve kısmi gider ödemesi eklendi.
+- Tedarikçi kaydı, gider borcu ve ödeme hareketleriyle güncellenen cari hesap eklendi.
+- Organizasyon maliyeti paket/hizmet maliyet anlık görüntüsü ve doğrudan giderlerden TRY olarak hesaplanır.
+- Gelir, gider ve virman iptallerinde orijinal hareket saklanır, ters finansal hareket oluşturulur.
+- İşlem anahtarları tekrar denemelerde aynı finansal kaydın ikinci kez yazılmasını engeller.
+- Tahsilat ekranında kasa/banka hesabı seçilebilir; boş bırakılırsa varsayılan hesap kullanılır.
+- Ana gezinme sol menüye taşındı; Finans ve Cari Hesaplar ekranı eklendi.
+- Gerçek `SALONERA` SQL Server örneğinde geçici test veritabanıyla gelir, gider, cari, virman ve iptal akışı doğrulandı.
+
+### AŞAMA 8 - Ön muhasebe ve raporlar
+
+- Günlük kasa, aylık gelir-gider/kâr-zarar, organizasyon kârlılığı, müşteri ve tedarikçi bakiyeleri eklendi.
+- Tarih aralığı, salon, müşteri ve tedarikçi filtreleri ilgili raporlarda kullanılabilir.
+- Raporlar UTF-8 CSV, Excel XLSX ve PDF olarak dışa aktarılır.
+- İptal edilmiş tahsilatların ve iadelerin müşteri bakiyesine etkisi, iptal edilmiş finans kayıtları ve ters kasa hareketleri hesaplamalarda dikkate alınır.
+- Gerçek `SALONERA` SQL Server örneğinde geçici veritabanıyla rapor tutarları ve çıktı dosyaları doğrulandı.
+
 ## 4. Mevcut test durumu
 
 - Unit test: 2
-- Integration test: 20
-- Toplam: **22/22 başarılı**
+- Integration test: 23
+- Toplam: **25/25 başarılı**
 - Derleme: **0 hata, 0 uyarı**
 - Bekleyen EF model değişikliği: Yok
 - NuGet güvenlik taraması: Bilinen açık yok
@@ -144,6 +164,8 @@ Başlıca doğrulanan senaryolar:
 - Geçerli A4 PDF üretimi ve Türkçe karakterler
 - Taksit, kısmi ödeme, fazla ödeme, iade, iptal ve finansal hareketler
 - Gerçek SQL Server üzerinde tahsilat işlemi
+- Kasa/banka bakiyesi, gelir-gider, tedarikçi carisi, virman ve ters hareketler
+- Gerçek SQL Server üzerinde finans akışı
 
 Standart doğrulama komutları:
 
@@ -174,12 +196,15 @@ Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Serv
 9. Sözleşme ve PDF üret.
 10. PDF açma ve yazdırmayı doğrula.
 11. Tahsilat planı oluştur; kısmi ödeme, iade, iptal ve makbuz PDF'ini dene.
+12. Finans ekranında kasa/banka hesabı, gelir, gider, tedarikçi ve virman oluştur.
+13. Gider ödemesi ve iptallerden sonra hesap ve cari bakiyelerini kontrol et.
 
 Örnek sözleşme: `output/pdf/Salonera_Ornek_Sozlesme.pdf`
 
 ## 6. Bilinen eksikler
 
-- Yeni tahsilat ekranının kullanıcıyla görsel ve elle kullanım testi yapılmalıdır.
+- Yeni rapor ekranı kullanıcıyla görsel ve elle denenmelidir.
+- Virman ilk sürümde aynı para birimindeki hesaplarla sınırlıdır.
 - Windows çalışma kopyasında eski dosyaların CRLF satır sonları `.editorconfig` LF kuralıyla çakıştığından, tüm çözümde `dotnet format --verify-no-changes` satır sonu hataları verir. Yeni C# dosyaları hedefli biçimlendirmeden geçirildi.
 - Oturum kapatma butonu henüz yok.
 - Kullanıcı arayüzünden çoklu rol atama ve yönetici parola sıfırlama yok.
@@ -191,24 +216,6 @@ Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Serv
 
 ## 7. Kalan geliştirme planı
 
-### AŞAMA 7 - Gelir, gider ve cari hesaplar
-
-- Gelir ve gider yönetimi
-- Tedarikçiler ve cari hareketler
-- Organizasyon maliyetleri
-- Kasa ve banka hesapları
-- Hesaplar arası virman
-- Finansal ters kayıt ve idempotency
-
-### AŞAMA 8 - Ön muhasebe ve raporlar
-
-- Günlük kasa
-- Gelir-gider ve kâr/zarar
-- Organizasyon kârlılığı
-- Müşteri ve tedarikçi bakiyeleri
-- Rapor filtreleri
-- Excel, CSV ve PDF dışa aktarım
-
 ### AŞAMA 9 - Yedekleme ve ayarlar
 
 - Güvenli SQL Server yedekleme ve geri yükleme
@@ -219,7 +226,6 @@ Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Serv
 
 ### AŞAMA 10 - Kullanılabilirlik
 
-- Ana navigasyonun sol menü tasarımına dönüştürülmesi
 - Form doğrulamaları ve Türkçe hata mesajları
 - Klavye kısayolları
 - Yüksek kontrast ve farklı çözünürlük testleri
@@ -236,6 +242,6 @@ Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Serv
 
 ## 8. Devam noktası
 
-Bir sonraki ana çalışma **AŞAMA 7 - Gelir, gider ve cari hesaplar** olmalıdır. AŞAMA 6'nın
-tahsilat ekranı kullanıcıyla elle denenmelidir. Her ana aşama sonunda derleme ve testler
+Bir sonraki ana çalışma **AŞAMA 9 - Yedekleme ve ayarlar** olmalıdır. Tahsilat, finans ve rapor
+ekranları kullanıcıyla elle denenmelidir. Her ana aşama sonunda derleme ve testler
 başarılı olmadan sonraki aşamaya geçilmemelidir.

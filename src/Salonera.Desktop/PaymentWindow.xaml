@@ -48,20 +48,25 @@
                     </DataGrid>
                     <ScrollViewer Grid.Column="1" Margin="18,0,0,0" VerticalScrollBarVisibility="Auto">
                         <StackPanel>
+                            <StackPanel IsEnabled="{Binding CanManageFinance}">
                             <TextBlock FontSize="16" FontWeight="SemiBold" Text="Yeni tahsilat" />
                             <TextBlock Margin="0,12,0,4" Text="Tutar" /><TextBox Height="34" Padding="7" Text="{Binding Amount}" />
                             <TextBlock Margin="0,12,0,4" Text="Kur (TL için 1)" /><TextBox Height="34" Padding="7" Text="{Binding ExchangeRate}" />
                             <TextBlock Margin="0,12,0,4" Text="Ödeme yöntemi" /><ComboBox Height="34" ItemsSource="{Binding Methods}" SelectedItem="{Binding SelectedMethod}" DisplayMemberPath="Name" />
+                            <TextBlock Margin="0,12,0,4" Text="Hesap (boşsa varsayılan)" /><ComboBox Height="34" ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" DisplayMemberPath="DisplayName" />
                             <TextBlock Margin="0,12,0,4" Text="Taksit (isteğe bağlı)" /><ComboBox Height="34" ItemsSource="{Binding Installments}" SelectedItem="{Binding SelectedInstallment}" DisplayMemberPath="DueDate" />
                             <Button Height="38" Margin="0,14,0,0" Background="{StaticResource PrimaryBrush}" Foreground="White" Content="Tahsilatı Kaydet" Click="CollectClick" />
+                            </StackPanel>
                             <Button Height="35" Margin="0,8,0,0" Content="Seçili Makbuzu PDF Aç" Click="OpenReceiptClick" />
                             <Button Height="35" Margin="0,8,0,0" Content="Seçili Makbuzu Yazdır" Click="PrintReceiptClick" />
+                            <StackPanel IsEnabled="{Binding CanManageFinance}">
                             <Separator Margin="0,18" />
                             <TextBlock FontSize="16" FontWeight="SemiBold" Text="İptal / iade" />
                             <TextBlock Margin="0,12,0,4" Text="İade tutarı" /><TextBox Height="34" Padding="7" Text="{Binding RefundAmount}" />
                             <TextBlock Margin="0,12,0,4" Text="Neden" /><TextBox Height="34" Padding="7" Text="{Binding Reason}" />
                             <Button Height="35" Margin="0,10,0,0" Content="Seçili Tahsilattan İade" Click="RefundClick" />
                             <Button Height="35" Margin="0,8,0,0" Content="Seçili Tahsilatı İptal Et" Click="CancelClick" />
+                            </StackPanel>
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
@@ -80,7 +85,7 @@
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Margin="14,0,0,0">
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" IsEnabled="{Binding CanManageFinance}">
                         <TextBlock FontSize="16" FontWeight="SemiBold" Text="Yeni plan" />
                         <TextBlock Margin="0,5,0,12" Foreground="#64748B" TextWrapping="Wrap" Text="Kapora ve taksitleri tek tek ekleyin. Toplamları sözleşme tutarına eşit olmalı." />
                         <DockPanel>

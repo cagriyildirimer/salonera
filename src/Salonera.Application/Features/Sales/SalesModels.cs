@@ -96,6 +96,8 @@ public interface ISalesContractService
 {
     Task<Guid> CreateContractAsync(CreateContractRequest request, CancellationToken cancellationToken = default);
 
+    Task<Guid?> FindContractIdForEventAsync(Guid eventId, CancellationToken cancellationToken = default);
+
     Task<ContractDocument> GetContractDocumentAsync(Guid contractId, CancellationToken cancellationToken = default);
 }
 

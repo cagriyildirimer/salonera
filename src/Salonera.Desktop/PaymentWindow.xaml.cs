@@ -27,7 +27,25 @@ public partial class PaymentWindow : Window
     private async void SavePlanClick(object sender, RoutedEventArgs e) => await _viewModel.SavePlanAsync();
     private async void CollectClick(object sender, RoutedEventArgs e) => await _viewModel.CollectAsync();
     private async void RefundClick(object sender, RoutedEventArgs e) => await _viewModel.RefundAsync();
-    private async void CancelClick(object sender, RoutedEventArgs e) => await _viewModel.CancelAsync();
+    private async void CancelClick(object sender, RoutedEventArgs e)
+    {
+        var receipt = _viewModel.SelectedReceipt;
+        if (receipt is null || receipt.IsCancelled || string.IsNullOrWhiteSpace(_viewModel.Reason))
+        {
+            await _viewModel.CancelAsync();
+            return;
+        }
+
+        var refundNote = receipt.Refunded > 0
+            ? $"Bu tahsilattan {receipt.Refunded:N2} tutarında iade yapılmış. İade kaydı saklanacak; kalan net tutar ters kayıtla kapatılacak.\n\n"
+            : string.Empty;
+        var answer = MessageBox.Show(
+            $"{refundNote}{receipt.ReceiptNumber} numaralı tahsilatı iptal etmek istediğinize emin misiniz?",
+            "Tahsilatı İptal Et",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+        if (answer == MessageBoxResult.Yes) await _viewModel.CancelAsync();
+    }
     private async void OpenReceiptClick(object sender, RoutedEventArgs e)
     {
         var path = await _viewModel.CreatePdfAsync();

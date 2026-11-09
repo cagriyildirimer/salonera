@@ -10,6 +10,8 @@ using Salonera.Application.Features.Customers;
 using Salonera.Application.Features.Events;
 using Salonera.Application.Features.Sales;
 using Salonera.Application.Features.Payments;
+using Salonera.Application.Features.Finance;
+using Salonera.Application.Features.Reports;
 using Salonera.Infrastructure.Configuration;
 using Salonera.Infrastructure.Documents;
 using Salonera.Infrastructure.Features;
@@ -51,6 +53,9 @@ public static class DependencyInjection
         services.AddSingleton<ISalesContractService, SalesContractService>();
         services.AddSingleton<IPaymentService, PaymentService>();
         services.AddSingleton<IReceiptPdfService, ReceiptPdfService>();
+        services.AddSingleton<IFinanceService, FinanceService>();
+        services.AddSingleton<IReportService, ReportService>();
+        services.AddSingleton<IReportExportService, ReportExportService>();
         services.AddSingleton<IContractPdfService, ContractPdfService>();
 
         var connectionString = configuration.GetConnectionString("SaloneraDatabase")
@@ -61,7 +66,6 @@ public static class DependencyInjection
                 sql =>
                 {
                     sql.MigrationsAssembly(typeof(SaloneraDbContext).Assembly.FullName);
-                    sql.EnableRetryOnFailure(3);
                 }));
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<SaloneraDbContext>());
         services.AddScoped(typeof(IRepository<>), typeof(EfRepository<>));

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using Microsoft.Extensions.Logging;
 using Salonera.Application.Common.Time;
 using Salonera.Application.Features.Catalogs;
 using Salonera.Application.Features.Customers;
@@ -12,7 +13,8 @@ public sealed class CalendarViewModel(
     IEventSchedulingService schedulingService,
     ICatalogService catalogService,
     ICustomerService customerService,
-    IClock clock) : ObservableObject
+    IClock clock,
+    ILogger<CalendarViewModel> logger) : ObservableObject
 {
     private HallListItem? _selectedHall;
     private CustomerListItem? _selectedCustomer;
@@ -100,6 +102,11 @@ public sealed class CalendarViewModel(
         var date = DateOnly.FromDateTime(EventDate.Value);
         var startsAt = new DateTimeOffset(date.ToDateTime(startTime), TimeSpan.FromHours(3));
         var endsAt = new DateTimeOffset(date.ToDateTime(endTime), TimeSpan.FromHours(3));
+        var optionExpiresAt = startsAt.AddDays(-2);
+        if (Status == EventStatus.Option && optionExpiresAt <= clock.UtcNow && startsAt > clock.UtcNow)
+        {
+            optionExpiresAt = clock.UtcNow.AddTicks((startsAt - clock.UtcNow).Ticks / 2);
+        }
         try
         {
             await schedulingService.ScheduleAsync(new ScheduleEventRequest(
@@ -110,7 +117,7 @@ public sealed class CalendarViewModel(
                 endsAt,
                 guestCount,
                 Status,
-                Status == EventStatus.Option ? startsAt.AddDays(-2) : null));
+                Status == EventStatus.Option ? optionExpiresAt : null));
             Message = "Organizasyon takvime eklendi.";
             await LoadCalendarAsync();
         }
@@ -121,6 +128,16 @@ public sealed class CalendarViewModel(
         catch (ArgumentException exception)
         {
             Message = exception.Message;
+        }
+        catch (Exception exception)
+        {
+            logger.Log(
+                LogLevel.Error,
+                new EventId(3001, "EventSchedulingFailed"),
+                "Organizasyon takvime eklenemedi.",
+                exception,
+                static (state, _) => state);
+            Message = "Organizasyon eklenemedi. Ayrıntılar uygulama günlüğüne kaydedildi.";
         }
     }
 

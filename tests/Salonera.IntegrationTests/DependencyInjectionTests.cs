@@ -2,10 +2,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 using Salonera.Application;
 using Salonera.Application.Common.Time;
 using Salonera.Infrastructure;
 using Salonera.Infrastructure.Configuration;
+using Salonera.Infrastructure.Persistence;
 
 namespace Salonera.IntegrationTests;
 
@@ -39,5 +41,8 @@ public sealed class DependencyInjectionTests
         Assert.Equal("TRY", options.BaseCurrency);
         Assert.Same(clock, provider.GetRequiredService<IClock>());
         Assert.NotEmpty(provider.GetServices<ILoggerProvider>());
+        using var scope = provider.CreateScope();
+        var context = scope.ServiceProvider.GetRequiredService<SaloneraDbContext>();
+        Assert.False(context.Database.CreateExecutionStrategy().RetriesOnFailure);
     }
 }
