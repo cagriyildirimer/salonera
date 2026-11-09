@@ -5,7 +5,7 @@ using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class PaymentWindow : Window
+public partial class PaymentWindow : UserControl
 {
     private readonly PaymentViewModel _viewModel;
 

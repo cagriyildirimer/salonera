@@ -4,7 +4,7 @@ using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class FinanceWindow : Window
+public partial class FinanceWindow : UserControl
 {
     private readonly FinanceViewModel _viewModel;
 

@@ -1,9 +1,10 @@
 using System.Windows;
+using System.Windows.Controls;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class CatalogManagementWindow : Window
+public partial class CatalogManagementWindow : UserControl
 {
     private readonly CatalogManagementViewModel _viewModel;
 

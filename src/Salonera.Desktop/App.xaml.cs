@@ -5,7 +5,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Salonera.Application;
-using Salonera.Application.Common.Security;
 using Salonera.Desktop.ViewModels;
 using Salonera.Infrastructure;
 
@@ -25,41 +24,11 @@ public partial class App : System.Windows.Application
             _host = CreateHostBuilder().Build();
             await _host.StartAsync();
 
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;
-            var authenticationService = _host.Services.GetRequiredService<IAuthenticationService>();
-            if (!await authenticationService.HasAnyUserAsync())
-            {
-                var setupWindow = _host.Services.GetRequiredService<InitialAdministratorWindow>();
-                if (setupWindow.ShowDialog() != true)
-                {
-                    Shutdown();
-                    return;
-                }
-            }
-
-            var loginWindow = _host.Services.GetRequiredService<LoginWindow>();
-            if (loginWindow.ShowDialog() != true)
-            {
-                Shutdown();
-                return;
-            }
-
-            var currentUser = _host.Services.GetRequiredService<ICurrentUser>();
-            if (currentUser.User?.MustChangePassword == true)
-            {
-                var changePasswordWindow = _host.Services.GetRequiredService<ChangePasswordWindow>();
-                if (changePasswordWindow.ShowDialog() != true)
-                {
-                    authenticationService.SignOut();
-                    Shutdown();
-                    return;
-                }
-            }
-
             var mainWindow = _host.Services.GetRequiredService<MainWindow>();
             MainWindow = mainWindow;
-            mainWindow.Show();
             ShutdownMode = ShutdownMode.OnMainWindowClose;
+            mainWindow.Show();
+            await mainWindow.InitializeAsync();
 
             var logger = _host.Services.GetRequiredService<ILogger<App>>();
             logger.Log(

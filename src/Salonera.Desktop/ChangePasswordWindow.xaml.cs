@@ -1,11 +1,13 @@
 using System.Windows;
+using System.Windows.Controls;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class ChangePasswordWindow : Window
+public partial class ChangePasswordWindow : UserControl
 {
     private readonly ChangePasswordViewModel _viewModel;
+    public event EventHandler? Completed;
 
     public ChangePasswordWindow(ChangePasswordViewModel viewModel)
     {
@@ -21,7 +23,7 @@ public partial class ChangePasswordWindow : Window
                 NewPasswordInput.Password,
                 ConfirmationInput.Password))
         {
-            DialogResult = true;
+            Completed?.Invoke(this, EventArgs.Empty);
         }
     }
 }

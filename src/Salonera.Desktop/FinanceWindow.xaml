@@ -1,10 +1,8 @@
-<Window x:Class="Salonera.Desktop.FinanceWindow"
+<UserControl x:Class="Salonera.Desktop.FinanceWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Finans" Width="1200" Height="790" MinWidth="1000" MinHeight="650"
-        WindowStartupLocation="CenterOwner" Background="{StaticResource PageBrush}"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="{StaticResource PageBrush}"
         Loaded="WindowLoaded">
-    <Window.Resources>
+    <UserControl.Resources>
         <Style x:Key="FormLabel" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,11,0,4" />
             <Setter Property="Foreground" Value="#475569" />
@@ -22,7 +20,7 @@
             <Setter Property="Background" Value="{StaticResource PrimaryBrush}" />
             <Setter Property="Foreground" Value="White" />
         </Style>
-    </Window.Resources>
+    </UserControl.Resources>
     <Grid Margin="22">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
         <DockPanel Margin="0,0,0,16">
@@ -167,4 +165,4 @@
         </TabControl>
         <TextBlock Grid.Row="2" Margin="0,10,0,0" Foreground="#B91C1C" Text="{Binding Message}" TextWrapping="Wrap" />
     </Grid>
-</Window>
+</UserControl>

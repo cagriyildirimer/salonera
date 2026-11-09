@@ -1,11 +1,13 @@
 using System.Windows;
+using System.Windows.Controls;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class LoginWindow : Window
+public partial class LoginWindow : UserControl
 {
     private readonly LoginViewModel _viewModel;
+    public event EventHandler? Completed;
 
     public LoginWindow(LoginViewModel viewModel)
     {
@@ -18,7 +20,7 @@ public partial class LoginWindow : Window
     {
         if (await _viewModel.LoginAsync(PasswordInput.Password))
         {
-            DialogResult = true;
+            Completed?.Invoke(this, EventArgs.Empty);
         }
     }
 }

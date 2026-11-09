@@ -1,36 +1,38 @@
-<Window x:Class="Salonera.Desktop.SalesContractWindow"
+<UserControl x:Class="Salonera.Desktop.SalesContractWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Paketler ve Sözleşme" Width="1050" Height="690"
-        WindowStartupLocation="CenterOwner" Background="{StaticResource PageBrush}" Loaded="WindowLoaded">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Background="{StaticResource PageBrush}" Loaded="WindowLoaded">
     <Grid Margin="24">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
         <TextBlock FontSize="24" FontWeight="SemiBold" Text="Paketler, Hizmetler ve Sözleşme" />
-        <TabControl Grid.Row="1" Margin="0,18">
+        <TabControl x:Name="SalesTabs" Grid.Row="1" Margin="0,18">
             <TabItem Header="Paketler ve Hizmetler">
                 <Grid Margin="12"><Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition /></Grid.ColumnDefinitions>
                     <Grid Margin="0,0,10,0"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <DataGrid ItemsSource="{Binding Packages}" AutoGenerateColumns="False" IsReadOnly="True">
                             <DataGrid.Columns><DataGridTextColumn Header="Paket" Binding="{Binding Name}" Width="2*" /><DataGridTextColumn Header="Satış" Binding="{Binding SalesPrice, StringFormat=N2}" Width="*" /><DataGridTextColumn Header="Maliyet" Binding="{Binding CostPrice, StringFormat=N2}" Width="*" /></DataGrid.Columns>
                         </DataGrid>
-                        <UniformGrid Grid.Row="1" Columns="5" Margin="0,10,0,0">
-                            <TextBox Margin="3" Text="{Binding PackageName}" ToolTip="Paket adı" />
-                            <TextBox Margin="3" Text="{Binding IncludedGuests}" ToolTip="Kişi sayısı" />
-                            <TextBox Margin="3" Text="{Binding PackageSalesPrice}" ToolTip="Satış fiyatı" />
-                            <TextBox Margin="3" Text="{Binding PackageCostPrice}" ToolTip="Maliyet" />
-                            <Button Margin="3" Content="Paket Ekle" Click="CreatePackageClick" />
-                        </UniformGrid>
+                        <StackPanel Grid.Row="1" Margin="0,12,0,0">
+                            <UniformGrid Columns="2">
+                                <StackPanel Margin="0,0,8,8"><TextBlock Text="Paket adı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding PackageName}" /></StackPanel>
+                                <StackPanel Margin="0,0,0,8"><TextBlock Text="Kişi sayısı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding IncludedGuests}" /></StackPanel>
+                                <StackPanel Margin="0,0,8,0"><TextBlock Text="Satış fiyatı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding PackageSalesPrice}" /></StackPanel>
+                                <StackPanel><TextBlock Text="Maliyet" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding PackageCostPrice}" /></StackPanel>
+                            </UniformGrid>
+                            <Button Margin="0,10,0,0" HorizontalAlignment="Right" Width="130" Background="{StaticResource PrimaryBrush}" Foreground="White" BorderThickness="0" Content="Paket Ekle" Click="CreatePackageClick" />
+                        </StackPanel>
                     </Grid>
                     <Grid Grid.Column="1" Margin="10,0,0,0"><Grid.RowDefinitions><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                         <DataGrid ItemsSource="{Binding ExtraServices}" AutoGenerateColumns="False" IsReadOnly="True">
                             <DataGrid.Columns><DataGridTextColumn Header="Ek Hizmet" Binding="{Binding Name}" Width="2*" /><DataGridTextColumn Header="Satış" Binding="{Binding SalesPrice, StringFormat=N2}" Width="*" /></DataGrid.Columns>
                         </DataGrid>
-                        <UniformGrid Grid.Row="1" Columns="4" Margin="0,10,0,0">
-                            <TextBox Margin="3" Text="{Binding ExtraName}" ToolTip="Hizmet adı" />
-                            <TextBox Margin="3" Text="{Binding ExtraSalesPrice}" ToolTip="Satış fiyatı" />
-                            <TextBox Margin="3" Text="{Binding ExtraCostPrice}" ToolTip="Maliyet" />
-                            <Button Margin="3" Content="Hizmet Ekle" Click="CreateExtraClick" />
-                        </UniformGrid>
+                        <StackPanel Grid.Row="1" Margin="0,12,0,0">
+                            <UniformGrid Columns="3">
+                                <StackPanel Margin="0,0,8,0"><TextBlock Text="Hizmet adı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding ExtraName}" /></StackPanel>
+                                <StackPanel Margin="0,0,8,0"><TextBlock Text="Satış fiyatı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding ExtraSalesPrice}" /></StackPanel>
+                                <StackPanel><TextBlock Text="Maliyet" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding ExtraCostPrice}" /></StackPanel>
+                            </UniformGrid>
+                            <Button Margin="0,10,0,0" HorizontalAlignment="Right" Width="130" Background="{StaticResource PrimaryBrush}" Foreground="White" BorderThickness="0" Content="Hizmet Ekle" Click="CreateExtraClick" />
+                        </StackPanel>
                     </Grid>
                 </Grid>
             </TabItem>
@@ -58,4 +60,4 @@
         </TabControl>
         <TextBlock Grid.Row="2" Foreground="#475569" Text="{Binding Message}" />
     </Grid>
-</Window>
+</UserControl>

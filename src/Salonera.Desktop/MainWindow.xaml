@@ -1,91 +1,212 @@
 <Window x:Class="Salonera.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Salonera" Width="1100" Height="700" MinWidth="860" MinHeight="580"
-        WindowStartupLocation="CenterScreen" Background="{StaticResource PageBrush}">
+        Title="Salonera · Salon Yönetimi" Width="1440" Height="860" MinWidth="1050" MinHeight="650"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource PageBrush}"
+        FontFamily="Segoe UI Variable, Segoe UI" FontSize="14">
     <Window.Resources>
-        <Style x:Key="NavButton" TargetType="Button">
-            <Setter Property="Height" Value="43" />
+        <Style x:Key="SidebarButton" TargetType="Button">
+            <Setter Property="Height" Value="46" />
             <Setter Property="Margin" Value="0,3" />
             <Setter Property="Padding" Value="14,0" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" />
-            <Setter Property="Background" Value="#26344C" />
-            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Foreground" Value="#696B82" />
+            <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="FontSize" Value="14" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="11">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="#F3F2FC" />
+                                <Setter Property="Foreground" Value="#524BC4" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.4" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="QuickAction" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Height" Value="110" />
+            <Setter Property="Margin" Value="0,0,14,14" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="22,12" />
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
     </Window.Resources>
+
     <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="230" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-        <Border Background="#172033">
-            <DockPanel Margin="16,20">
-                <StackPanel DockPanel.Dock="Top" Margin="8,0,8,26">
-                    <TextBlock FontSize="26" FontWeight="Bold" Foreground="White" Text="Salonera" />
-                    <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="#CBD5E1" Text="Salon Yönetimi" />
-                </StackPanel>
-                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                        <TextBlock Margin="12,0,0,10" Foreground="#94A3B8" FontSize="11" FontWeight="SemiBold" Text="İŞLEMLER" />
-                        <Button Style="{StaticResource NavButton}" Content="Müşteriler" Click="OpenCustomersClick"
-                                Visibility="{Binding CanManageCustomers, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Takvim ve Organizasyonlar" Click="OpenCalendarClick"
-                                Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Paket ve Sözleşmeler" Click="OpenSalesClick"
-                                Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Tahsilatlar" Click="OpenPaymentsClick"
-                                Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Finans ve Cari Hesaplar" Click="OpenFinanceClick"
-                                Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Ön Muhasebe ve Raporlar" Click="OpenReportsClick"
-                                Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Separator Margin="8,18" Background="#475569" />
-                        <TextBlock Margin="12,0,0,10" Foreground="#94A3B8" FontSize="11" FontWeight="SemiBold" Text="YÖNETİM" />
-                        <Button Style="{StaticResource NavButton}" Content="Şube ve Salonlar" Click="OpenCatalogsClick"
-                                Visibility="{Binding CanManageSettings, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        <Button Style="{StaticResource NavButton}" Content="Kullanıcılar" Click="OpenUsersClick"
-                                Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                    </StackPanel>
-                </ScrollViewer>
-            </DockPanel>
-        </Border>
-        <Grid Grid.Column="1">
-            <Grid.RowDefinitions><RowDefinition Height="66" /><RowDefinition Height="*" /><RowDefinition Height="35" /></Grid.RowDefinitions>
-            <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="0,0,0,1">
-                <DockPanel Margin="24,0" VerticalAlignment="Center">
-                    <TextBlock DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="#475569"
-                               FontWeight="SemiBold" Text="{Binding CurrentUserDisplayName}" />
-                    <TextBlock FontSize="18" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="Genel Bakış" />
-                </DockPanel>
-            </Border>
-            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="32">
-                    <TextBlock FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
-                               Text="Salonera'ya hoş geldiniz" />
-                    <TextBlock Margin="0,8,0,24" FontSize="14" Foreground="#64748B" TextWrapping="Wrap"
-                               Text="İşlemlere soldaki menüden ulaşabilirsiniz. Yeni bir organizasyon için aşağıdaki sırayı izleyin." />
-                    <Border Padding="24" Background="White" CornerRadius="12">
-                        <StackPanel>
-                            <TextBlock FontSize="17" FontWeight="SemiBold" Text="Yeni organizasyon akışı" />
-                            <TextBlock Margin="0,16,0,0" Text="1   Müşteriyi kaydedin" FontSize="14" />
-                            <TextBlock Margin="0,12,0,0" Text="2   Takvimde salon ve tarih seçin" FontSize="14" />
-                            <TextBlock Margin="0,12,0,0" Text="3   Paket seçip sözleşme oluşturun" FontSize="14" />
-                            <TextBlock Margin="0,12,0,0" Text="4   Kapora veya taksit tahsil edin" FontSize="14" />
-                            <TextBlock Margin="0,12,0,0" Text="5   Giderleri ve tedarikçi ödemelerini Finanstan izleyin" FontSize="14" />
+        <Grid x:Name="Workspace" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="232" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Background="White" BorderBrush="#E8E8F1" BorderThickness="0,0,1,0">
+                <Grid Margin="14,22,14,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal" Margin="8,4,0,32">
+                        <Border Width="38" Height="38" CornerRadius="12" Background="{StaticResource PrimaryBrush}" Margin="0,0,10,0">
+                            <TextBlock Text="S" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White" FontSize="19" FontWeight="Bold" />
+                        </Border>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="salonera" Foreground="{StaticResource TextBrush}" FontSize="20" FontWeight="Bold" />
+                            <TextBlock Text="YÖNETİM PANELİ" Foreground="#9B9CB0" FontSize="9" FontWeight="SemiBold" />
                         </StackPanel>
-                    </Border>
-                    <Border Margin="0,18,0,0" Padding="20" Background="#EFF6FF" CornerRadius="10">
-                        <TextBlock TextWrapping="Wrap" Foreground="#1E3A8A"
-                                   Text="Finans ekranında kasa ve banka hesaplarını, gelir-gider kayıtlarını, tedarikçi carisini ve organizasyon maliyetlerini görebilirsiniz." />
-                    </Border>
-                </StackPanel>
-            </ScrollViewer>
-            <Border Grid.Row="2" Background="White" BorderBrush="#E2E8F0" BorderThickness="0,1,0,0">
-                <DockPanel Margin="22,0" VerticalAlignment="Center">
-                    <TextBlock DockPanel.Dock="Right" Foreground="#64748B" Text="{Binding StartupTime}" />
-                    <TextBlock Foreground="#15803D" Text="●" />
-                    <TextBlock Margin="6,0,0,0" Foreground="#475569" Text="{Binding StatusText}" />
-                </DockPanel>
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="NavItems">
+                            <TextBlock Margin="14,0,0,9" Text="ÇALIŞMA ALANI" Foreground="#A0A1B1" FontSize="10" FontWeight="Bold" />
+                            <Button Tag="home" Style="{StaticResource SidebarButton}" Content="◫    Genel Bakış" Click="HomeClick" />
+                            <Button Tag="customers" Style="{StaticResource SidebarButton}" Content="♙    Müşteriler" Click="OpenCustomersClick"
+                                    Visibility="{Binding CanManageCustomers, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="calendar" Style="{StaticResource SidebarButton}" Content="▦    Takvim" Click="OpenCalendarClick"
+                                    Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="sales" Style="{StaticResource SidebarButton}" Content="▤    Paket ve Sözleşmeler" Click="OpenSalesClick"
+                                    Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="payments" Style="{StaticResource SidebarButton}" Content="◩    Tahsilatlar" Click="OpenPaymentsClick"
+                                    Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="finance" Style="{StaticResource SidebarButton}" Content="▥    Finans" Click="OpenFinanceClick"
+                                    Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="reports" Style="{StaticResource SidebarButton}" Content="▧    Raporlar" Click="OpenReportsClick"
+                                    Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Border Margin="12,20,12,18" Height="1" Background="#EFEFF5" />
+                            <TextBlock Margin="14,0,0,9" Text="YÖNETİM" Foreground="#A0A1B1" FontSize="10" FontWeight="Bold" />
+                            <Button Tag="catalogs" Style="{StaticResource SidebarButton}" Content="▣    Şube ve Salonlar" Click="OpenCatalogsClick"
+                                    Visibility="{Binding CanManageSettings, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Tag="users" Style="{StaticResource SidebarButton}" Content="♙    Kullanıcılar" Click="OpenUsersClick"
+                                    Visibility="{Binding CanManageUsers, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                    <StackPanel Grid.Row="2">
+                        <Border Height="1" Background="#EFEFF5" Margin="8,0,8,10" />
+                        <Button Style="{StaticResource SidebarButton}" Content="↪    Oturumu Kapat" Click="SignOutClick" />
+                    </StackPanel>
+                </Grid>
             </Border>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="84" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Background="{StaticResource PageBrush}" BorderBrush="#E8E8F1" BorderThickness="0,0,0,1">
+                    <Grid Margin="28,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="BackButton" Width="40" Height="40" Content="←" FontSize="20"
+                                ToolTip="Önceki sayfaya dön" Click="BackClick" />
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="SALONERA / ÇALIŞMA ALANI" FontSize="10" FontWeight="Bold" Foreground="#A0A1B1" />
+                            <TextBlock x:Name="PageTitle" Text="Genel Bakış" FontSize="22" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" />
+                        </StackPanel>
+                        <Border Grid.Column="2" VerticalAlignment="Center" Background="#ECEAFF" CornerRadius="18" Padding="14,8">
+                            <TextBlock Text="{Binding CurrentUserDisplayName}" Foreground="#514BC1" FontWeight="SemiBold" />
+                        </Border>
+                    </Grid>
+                </Border>
+                <ContentControl x:Name="PageHost" Grid.Row="1" HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel Margin="32,30,20,28">
+                            <Border CornerRadius="20" Padding="30" Background="#655DDB" Margin="0,0,14,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="BUGÜNÜN ÇALIŞMA ALANI" Foreground="#DCD9FF" FontSize="11" FontWeight="Bold" />
+                                        <TextBlock Margin="0,13,0,0" Text="Her şey elinin altında." Foreground="White"
+                                                   FontSize="30" FontWeight="SemiBold" />
+                                        <TextBlock Margin="0,10,0,0" Text="Yeni bir işlem için aşağıdan başla veya sol menüden bölüm seç."
+                                                   Foreground="#EEECFF" FontSize="14" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Width="110" Height="110" CornerRadius="55" Background="#7E77EC" Margin="20,0,0,0">
+                                        <TextBlock Text="✦" FontSize="50" Foreground="#EAE7FF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                            <TextBlock Margin="0,30,0,7" Text="Hızlı işlemler" FontSize="22" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" />
+                            <TextBlock Margin="0,0,0,18" Text="En sık kullandığın işlemlere doğrudan geç." Foreground="{StaticResource MutedBrush}" />
+                            <UniformGrid Columns="2">
+                                <Button Style="{StaticResource QuickAction}" Click="OpenCustomersClick"
+                                        Visibility="{Binding CanManageCustomers, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel><TextBlock Text="＋  Yeni müşteri" /><TextBlock Margin="0,7,0,0" FontSize="12" FontWeight="Normal" Foreground="{StaticResource MutedBrush}" Text="Kişi ve iletişim bilgilerini kaydet" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource QuickAction}" Click="OpenCalendarClick"
+                                        Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel><TextBlock Text="▦  Organizasyon planla" /><TextBlock Margin="0,7,0,0" FontSize="12" FontWeight="Normal" Foreground="{StaticResource MutedBrush}" Text="Salon ve tarih seçerek rezervasyon aç" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource QuickAction}" Click="OpenContractClick"
+                                        Visibility="{Binding CanManageEvents, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel><TextBlock Text="▤  Sözleşme oluştur" /><TextBlock Margin="0,7,0,0" FontSize="12" FontWeight="Normal" Foreground="{StaticResource MutedBrush}" Text="Paket seç ve PDF hazırla" /></StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource QuickAction}" Click="OpenPaymentsClick"
+                                        Visibility="{Binding CanViewFinance, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel><TextBlock Text="◩  Tahsilat kaydet" /><TextBlock Margin="0,7,0,0" FontSize="12" FontWeight="Normal" Foreground="{StaticResource MutedBrush}" Text="Ödemeyi işle ve makbuz aç" /></StackPanel>
+                                </Button>
+                            </UniformGrid>
+                            <Border Margin="0,10,14,0" Padding="24" Background="#F0EFFF" CornerRadius="16">
+                                <StackPanel>
+                                    <TextBlock Text="İş sırası" FontSize="16" FontWeight="SemiBold" Foreground="#514BC1" />
+                                    <TextBlock Margin="0,9,0,0" Text="Müşteri ekle  →  Tarih planla  →  Sözleşme hazırla  →  Tahsilat al"
+                                               Foreground="#6C67A8" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </ContentControl>
+            </Grid>
+        </Grid>
+
+        <Grid x:Name="AuthenticationPanel" Background="#F7F7FB">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+            <Border Background="#36305E">
+                <Grid Margin="60,48">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="salonera." Foreground="White" FontSize="30" FontWeight="Bold" />
+                        <TextBlock Margin="0,8,0,0" Text="Salon yönetimini kolaylaştıran çalışma alanı"
+                                   Foreground="#C4BFDF" FontSize="14" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                        <Border Width="64" Height="64" CornerRadius="20" Background="#6D64CB" HorizontalAlignment="Left" Margin="0,0,0,24">
+                            <TextBlock Text="✦" FontSize="30" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="İşletmeni güvenle, kolayca yönet."
+                                   Foreground="White" FontSize="36" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,18,0,0" Text="Takvim, müşteriler, sözleşmeler ve tahsilatlar tek bir çalışma alanında."
+                                   Foreground="#D0CBEC" FontSize="16" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" Text="SALONERA  /  SALON YÖNETİMİ"
+                               Foreground="#ABA5CD" FontSize="11" FontWeight="SemiBold" />
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                <Grid MinHeight="600">
+                    <ContentControl x:Name="AuthContent" Width="520" HorizontalAlignment="Center"
+                                    VerticalAlignment="Center" />
+                </Grid>
+            </ScrollViewer>
         </Grid>
     </Grid>
 </Window>

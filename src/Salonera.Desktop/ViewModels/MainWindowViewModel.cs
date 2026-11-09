@@ -6,18 +6,15 @@ namespace Salonera.Desktop.ViewModels;
 
 public sealed class MainWindowViewModel : ObservableObject
 {
+    private readonly ICurrentUser _currentUser;
+
     public MainWindowViewModel(IClock clock, ICurrentUser currentUser)
     {
         ArgumentNullException.ThrowIfNull(clock);
+        _currentUser = currentUser;
 
         ApplicationName = "Salonera";
         Subtitle = "Salon Yönetimi ve Ön Muhasebe";
-        CurrentUserDisplayName = currentUser.User?.DisplayName ?? "Kullanıcı";
-        CanManageUsers = currentUser.User?.Permissions.Contains(Permissions.UsersManage) == true;
-        CanManageCustomers = currentUser.User?.Permissions.Contains(Permissions.CustomersManage) == true;
-        CanManageEvents = currentUser.User?.Permissions.Contains(Permissions.EventsManage) == true;
-        CanManageSettings = currentUser.User?.Permissions.Contains(Permissions.SettingsManage) == true;
-        CanViewFinance = currentUser.User?.Permissions.Contains(Permissions.FinanceView) == true;
         StatusText = "Hazır";
         StartupTime = clock.TurkeyNow.ToString(
             "dd MMMM yyyy HH:mm",
@@ -28,19 +25,32 @@ public sealed class MainWindowViewModel : ObservableObject
 
     public string Subtitle { get; }
 
-    public string CurrentUserDisplayName { get; }
+    public string CurrentUserDisplayName => _currentUser.User?.DisplayName ?? "Kullanıcı";
 
-    public bool CanManageUsers { get; }
+    public bool CanManageUsers => Has(Permissions.UsersManage);
 
-    public bool CanManageCustomers { get; }
+    public bool CanManageCustomers => Has(Permissions.CustomersManage);
 
-    public bool CanManageEvents { get; }
+    public bool CanManageEvents => Has(Permissions.EventsManage);
 
-    public bool CanManageSettings { get; }
+    public bool CanManageSettings => Has(Permissions.SettingsManage);
 
-    public bool CanViewFinance { get; }
+    public bool CanViewFinance => Has(Permissions.FinanceView);
 
     public string StatusText { get; }
 
     public string StartupTime { get; }
+
+    public void RefreshUser()
+    {
+        OnPropertyChanged(nameof(CurrentUserDisplayName));
+        OnPropertyChanged(nameof(CanManageUsers));
+        OnPropertyChanged(nameof(CanManageCustomers));
+        OnPropertyChanged(nameof(CanManageEvents));
+        OnPropertyChanged(nameof(CanManageSettings));
+        OnPropertyChanged(nameof(CanViewFinance));
+    }
+
+    private bool Has(string permission)
+        => _currentUser.User?.Permissions.Contains(permission) == true;
 }

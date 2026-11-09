@@ -20,6 +20,9 @@ dotnet run --project src/Salonera.Desktop/Salonera.Desktop.csproj
 ```
 
 İlk açılışta veritabanı otomatik hazırlanır ve ilk yönetici hesabı oluşturulur.
+Giriş, yönetim ekranları ve organizasyon ayrıntısı aynı uygulama penceresinde açılır.
+Sol menüden bölümler arasında geçilir; üstteki ok önceki ekrana döner. Oturumu kapat
+seçeneği giriş ekranına döner.
 Tahsilatlar ekranı, sözleşme oluşturulduktan sonra kullanılabilir. Finans ve Cari Hesaplar
 ekranında kasa/banka hesapları, gelir-gider, tedarikçi ve virman işlemleri bulunur.
 Ön Muhasebe ve Raporlar ekranında günlük kasa, gelir-gider, organizasyon kârlılığı,

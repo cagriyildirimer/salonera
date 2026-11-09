@@ -1,9 +1,10 @@
 using System.Windows;
+using System.Windows.Controls;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class CustomerManagementWindow : Window
+public partial class CustomerManagementWindow : UserControl
 {
     private readonly CustomerManagementViewModel _viewModel;
 

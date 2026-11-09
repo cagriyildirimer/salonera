@@ -6,7 +6,7 @@ using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class ReportsWindow : Window
+public partial class ReportsWindow : UserControl
 {
     private readonly ReportsViewModel _viewModel;
 
@@ -46,6 +46,6 @@ public partial class ReportsWindow : Window
                 _ => "CSV dosyası (*.csv)|*.csv",
             },
         };
-        if (dialog.ShowDialog(this) == true) await _viewModel.ExportAsync(dialog.FileName);
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) await _viewModel.ExportAsync(dialog.FileName);
     }
 }

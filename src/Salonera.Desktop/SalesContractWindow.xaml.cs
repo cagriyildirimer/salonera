@@ -1,13 +1,15 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using Salonera.Application.Features.Sales;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class SalesContractWindow : Window
+public partial class SalesContractWindow : UserControl
 {
+    public void OpenContractTab() => SalesTabs.SelectedIndex = 1;
     private readonly SalesContractViewModel _viewModel;
 
     public SalesContractWindow(SalesContractViewModel viewModel)

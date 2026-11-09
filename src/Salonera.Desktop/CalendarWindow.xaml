@@ -1,8 +1,8 @@
-<Window x:Class="Salonera.Desktop.CalendarWindow"
+<UserControl x:Class="Salonera.Desktop.CalendarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Takvim ve Salon Müsaitliği" Width="1100" Height="680"
-        WindowStartupLocation="CenterOwner" Background="{StaticResource PageBrush}" Loaded="WindowLoaded">
+        xmlns:local="clr-namespace:Salonera.Desktop" Background="{StaticResource PageBrush}" Loaded="WindowLoaded">
+    <UserControl.Resources><local:EventStatusTextConverter x:Key="EventStatusText" /></UserControl.Resources>
     <Grid Margin="24">
         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
         <DockPanel>
@@ -13,36 +13,45 @@
             <DatePicker DockPanel.Dock="Right" Width="140" Margin="0,0,8,0" SelectedDate="{Binding CalendarDate}" />
             <TextBlock FontSize="24" FontWeight="SemiBold" Text="Takvim ve Salon Müsaitliği" />
         </DockPanel>
-        <DataGrid Grid.Row="1" Margin="0,18" ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent}"
-                  AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
-                  MouseDoubleClick="EventDoubleClick">
-            <DataGrid.Columns>
+        <Grid Grid.Row="1" Margin="0,18">
+            <DataGrid x:Name="EventsGrid" ItemsSource="{Binding Events}" SelectedItem="{Binding SelectedEvent}"
+                      AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False"
+                      MouseDoubleClick="EventDoubleClick">
+                <DataGrid.Columns>
                 <DataGridTextColumn Header="No" Binding="{Binding EventNumber}" Width="*" />
                 <DataGridTextColumn Header="Başlangıç" Binding="{Binding StartsAt, StringFormat={}{0:dd.MM.yyyy HH:mm}}" Width="*" />
                 <DataGridTextColumn Header="Bitiş" Binding="{Binding EndsAt, StringFormat={}{0:HH:mm}}" Width="80" />
                 <DataGridTextColumn Header="Salon" Binding="{Binding HallName}" Width="*" />
                 <DataGridTextColumn Header="Müşteri" Binding="{Binding CustomerName}" Width="2*" />
                 <DataGridTextColumn Header="Tür" Binding="{Binding EventTypeName}" Width="*" />
-                <DataGridTextColumn Header="Durum" Binding="{Binding Status}" Width="*" />
-            </DataGrid.Columns>
-        </DataGrid>
-        <Border Grid.Row="2" Padding="14" Background="White" CornerRadius="10">
+                <DataGridTextColumn Header="Durum" Binding="{Binding Status, Converter={StaticResource EventStatusText}}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsHitTestVisible="False">
+                <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=EventsGrid}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                <TextBlock Text="▦" FontSize="34" Foreground="#AAA6E5" HorizontalAlignment="Center" />
+                <TextBlock Text="Bu dönemde organizasyon yok" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" HorizontalAlignment="Center" Margin="0,8,0,0" />
+                <TextBlock Text="Yeni organizasyonu aşağıdaki formdan planlayabilirsin." Foreground="{StaticResource MutedBrush}" HorizontalAlignment="Center" Margin="0,5,0,0" />
+            </StackPanel>
+        </Grid>
+        <Border Grid.Row="2" Padding="20,16" Background="White" BorderBrush="#E0E8F1" BorderThickness="1" CornerRadius="12">
             <StackPanel>
-                <UniformGrid Columns="8">
-                    <ComboBox Margin="4" ItemsSource="{Binding Halls}" SelectedItem="{Binding SelectedHall}" DisplayMemberPath="Name" />
-                    <ComboBox Margin="4" ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}" DisplayMemberPath="FullName" />
-                    <ComboBox Margin="4" ItemsSource="{Binding EventTypes}" SelectedItem="{Binding SelectedEventType}" DisplayMemberPath="Name" />
-                    <DatePicker Margin="4" SelectedDate="{Binding EventDate}" />
-                    <TextBox Margin="4" Padding="7" Text="{Binding StartTime}" ToolTip="Başlangıç saati" />
-                    <TextBox Margin="4" Padding="7" Text="{Binding EndTime}" ToolTip="Bitiş saati" />
-                    <TextBox Margin="4" Padding="7" Text="{Binding GuestCount}" ToolTip="Davetli sayısı" />
-                    <ComboBox Margin="4" ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}" />
+                <TextBlock Text="Yeni organizasyon" FontSize="17" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12" />
+                <UniformGrid Columns="4">
+                    <StackPanel Margin="0,0,10,10"><TextBlock Text="Salon" Style="{StaticResource FieldLabelStyle}" /><ComboBox ItemsSource="{Binding Halls}" SelectedItem="{Binding SelectedHall}" DisplayMemberPath="Name" /></StackPanel>
+                    <StackPanel Margin="0,0,10,10"><TextBlock Text="Müşteri" Style="{StaticResource FieldLabelStyle}" /><ComboBox ItemsSource="{Binding Customers}" SelectedItem="{Binding SelectedCustomer}" DisplayMemberPath="FullName" /></StackPanel>
+                    <StackPanel Margin="0,0,10,10"><TextBlock Text="Organizasyon türü" Style="{StaticResource FieldLabelStyle}" /><ComboBox ItemsSource="{Binding EventTypes}" SelectedItem="{Binding SelectedEventType}" DisplayMemberPath="Name" /></StackPanel>
+                    <StackPanel Margin="0,0,0,10"><TextBlock Text="Tarih" Style="{StaticResource FieldLabelStyle}" /><DatePicker SelectedDate="{Binding EventDate}" /></StackPanel>
+                    <StackPanel Margin="0,0,10,0"><TextBlock Text="Başlangıç" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding StartTime}" ToolTip="Başlangıç saati" /></StackPanel>
+                    <StackPanel Margin="0,0,10,0"><TextBlock Text="Bitiş" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding EndTime}" ToolTip="Bitiş saati" /></StackPanel>
+                    <StackPanel Margin="0,0,10,0"><TextBlock Text="Davetli sayısı" Style="{StaticResource FieldLabelStyle}" /><TextBox Text="{Binding GuestCount}" ToolTip="Davetli sayısı" /></StackPanel>
+                    <StackPanel><TextBlock Text="Durum" Style="{StaticResource FieldLabelStyle}" /><ComboBox ItemsSource="{Binding Statuses}" SelectedItem="{Binding Status}"><ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Converter={StaticResource EventStatusText}}" /></DataTemplate></ComboBox.ItemTemplate></ComboBox></StackPanel>
                 </UniformGrid>
-                <DockPanel Margin="4,8,4,0">
-                    <Button DockPanel.Dock="Right" Width="140" Padding="10,6" Content="Takvime Ekle" Click="ScheduleClick" />
-                    <TextBlock VerticalAlignment="Center" Foreground="#475569" Text="{Binding Message}" />
+                <DockPanel Margin="0,16,0,0">
+                    <Button DockPanel.Dock="Right" Width="145" Background="{StaticResource PrimaryBrush}" Foreground="White" BorderThickness="0" Content="Takvime Ekle" Click="ScheduleClick" />
+                    <TextBlock VerticalAlignment="Center" Foreground="#475569" Text="{Binding Message}" TextWrapping="Wrap" />
                 </DockPanel>
             </StackPanel>
         </Border>
     </Grid>
-</Window>
+</UserControl>

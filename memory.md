@@ -206,7 +206,7 @@ Windows geliştirme ortamında .NET 10 SDK 10.0.111 ve `SALONERA` adlı SQL Serv
 - Yeni rapor ekranı kullanıcıyla görsel ve elle denenmelidir.
 - Virman ilk sürümde aynı para birimindeki hesaplarla sınırlıdır.
 - Windows çalışma kopyasında eski dosyaların CRLF satır sonları `.editorconfig` LF kuralıyla çakıştığından, tüm çözümde `dotnet format --verify-no-changes` satır sonu hataları verir. Yeni C# dosyaları hedefli biçimlendirmeden geçirildi.
-- Oturum kapatma butonu henüz yok.
+- Tek pencereli yeni arayüzde giriş, yönetim ekranları ve organizasyon ayrıntısı içerik alanında açılır; geri ve oturumu kapat düğmeleri vardır.
 - Kullanıcı arayüzünden çoklu rol atama ve yönetici parola sıfırlama yok.
 - Takvim görsel zaman çizelgesi yerine liste tabanlıdır; sürükle-bırak yok.
 - Bazı ayrıntılı müşteri ve salon düzenleme servisleri hazır olsa da hızlı ekranlarda tüm alanlar gösterilmiyor.

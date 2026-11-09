@@ -1,11 +1,14 @@
 using System.Windows;
+using System.Windows.Controls;
+using Salonera.Application.Features.Events;
 using Salonera.Desktop.ViewModels;
 
 namespace Salonera.Desktop;
 
-public partial class CalendarWindow : Window
+public partial class CalendarWindow : UserControl
 {
     private readonly CalendarViewModel _viewModel;
+    public event Action<CalendarEventItem>? DetailRequested;
 
     public CalendarWindow(CalendarViewModel viewModel)
     {
@@ -26,7 +29,6 @@ public partial class CalendarWindow : Window
             return;
         }
 
-        var detailWindow = new EventDetailWindow(_viewModel.SelectedEvent) { Owner = this };
-        detailWindow.ShowDialog();
+        DetailRequested?.Invoke(_viewModel.SelectedEvent);
     }
 }
