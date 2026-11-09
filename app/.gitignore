@@ -1,0 +1,5 @@
+node_modules/
+dist/
+target/
+core/dev-veri/
+*.log
