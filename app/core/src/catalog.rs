@@ -118,18 +118,26 @@ impl ProductTable {
 }
 
 pub fn list_products(conn: &Connection, kind: ProductTable, include_inactive: bool) -> AppResult<Vec<ProductDto>> {
-    let description = match kind {
-        ProductTable::Packages => "description",
-        ProductTable::Extras => "NULL",
+    let columns = match kind {
+        ProductTable::Packages => "description, price, per_guest_price, min_guests",
+        ProductTable::Extras => "NULL, price, 0, 0",
     };
     let filter = if include_inactive { "" } else { "WHERE is_active = 1" };
     let sql = format!(
-        "SELECT id, name, {description}, price, is_active FROM {} {filter} ORDER BY is_active DESC, price, name",
+        "SELECT id, name, {columns}, is_active FROM {} {filter} ORDER BY is_active DESC, price, name",
         kind.table()
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |r| {
-        Ok(ProductDto { id: r.get(0)?, name: r.get(1)?, description: r.get(2)?, price: r.get(3)?, is_active: r.get(4)? })
+        Ok(ProductDto {
+            id: r.get(0)?,
+            name: r.get(1)?,
+            description: r.get(2)?,
+            price: r.get(3)?,
+            per_guest_price: r.get(4)?,
+            min_guests: r.get(5)?,
+            is_active: r.get(6)?,
+        })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -143,17 +151,23 @@ pub fn save_product(
 ) -> AppResult<String> {
     ctx.user.require_admin()?;
     let name = required(&request.name, &format!("{} adı", kind.label()), 150)?;
-    if request.price < 0 {
+    if request.price < 0 || request.per_guest_price < 0 {
         return rule("Fiyat eksi olamaz.");
     }
+    if !(0..=100_000).contains(&request.min_guests) {
+        return rule("En az kişi sayısını doğru yazın (sınır yoksa boş bırakın).");
+    }
+    // Kişi başı fiyat yoksa "en az kişi" anlamsızdır; kafa karıştırmasın diye sıfırlanır.
+    let min_guests = if request.per_guest_price == 0 { 0 } else { request.min_guests };
     let description = optional(&request.description, 1000);
     let table = kind.table();
     let id = match id {
         Some(id) => {
             let changed = match kind {
                 ProductTable::Packages => conn.execute(
-                    "UPDATE packages SET name = ?1, description = ?2, price = ?3, is_active = ?4 WHERE id = ?5",
-                    params![name, description, request.price, request.is_active, id],
+                    "UPDATE packages SET name = ?1, description = ?2, price = ?3, per_guest_price = ?4, min_guests = ?5,
+                            is_active = ?6 WHERE id = ?7",
+                    params![name, description, request.price, request.per_guest_price, min_guests, request.is_active, id],
                 )?,
                 ProductTable::Extras => conn.execute(
                     "UPDATE extras SET name = ?1, price = ?2, is_active = ?3 WHERE id = ?4",
@@ -169,8 +183,9 @@ pub fn save_product(
             let id = new_id();
             match kind {
                 ProductTable::Packages => conn.execute(
-                    "INSERT INTO packages (id, name, description, price, is_active) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![id, name, description, request.price, request.is_active],
+                    "INSERT INTO packages (id, name, description, price, per_guest_price, min_guests, is_active)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![id, name, description, request.price, request.per_guest_price, min_guests, request.is_active],
                 )?,
                 ProductTable::Extras => conn.execute(
                     "INSERT INTO extras (id, name, price, is_active) VALUES (?1, ?2, ?3, ?4)",

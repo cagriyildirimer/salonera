@@ -122,6 +122,39 @@ CREATE TABLE audit (
     action TEXT NOT NULL,
     detail TEXT
 );
+"#,
+// 2: Kişi sayısına göre fiyat. Paket tutarı = sabit tutar (price) + kişi başı × max(davetli, en az kişi).
+// Satış anındaki fiyat bilgisi rezervasyona kopyalanır; paket sonradan değişse de sözleşme değişmez.
+// reservations.package_price hesaplanmış paket tutarını tutar (eski kayıtlarda sabit fiyatla aynıdır).
+r#"
+ALTER TABLE packages ADD COLUMN per_guest_price INTEGER NOT NULL DEFAULT 0 CHECK (per_guest_price >= 0);
+ALTER TABLE packages ADD COLUMN min_guests INTEGER NOT NULL DEFAULT 0 CHECK (min_guests >= 0);
+ALTER TABLE reservations ADD COLUMN package_base_price INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reservations ADD COLUMN package_per_guest INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reservations ADD COLUMN package_min_guests INTEGER NOT NULL DEFAULT 0;
+UPDATE reservations SET package_base_price = package_price;
+"#,
+// 3: Organizasyon planı: saatlik akış (yemek, pasta, takı töreni…) ve müşterinin seçtiği müzikler.
+r#"
+CREATE TABLE program_items (
+    id TEXT PRIMARY KEY,
+    reservation_id TEXT NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    time TEXT NOT NULL,
+    title TEXT NOT NULL,
+    note TEXT,
+    ord INTEGER NOT NULL
+);
+CREATE INDEX ix_program_items_reservation ON program_items(reservation_id);
+CREATE TABLE music_items (
+    id TEXT PRIMARY KEY,
+    reservation_id TEXT NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    song TEXT,
+    link TEXT,
+    ord INTEGER NOT NULL
+);
+CREATE INDEX ix_music_items_reservation ON music_items(reservation_id);
+ALTER TABLE reservations ADD COLUMN program_notes TEXT;
 "#];
 
 pub fn open(path: &Path) -> AppResult<Connection> {

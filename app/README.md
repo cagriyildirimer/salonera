@@ -39,6 +39,13 @@ Tarayıcıda denemek için: `cargo run -p salonera-core --example dev_server -- 
 - Aynı salonda saatleri çakışan iki kayıt olamaz; bitişik saatler serbesttir; gece yarısını geçen kayıt ertesi günü de kapatır.
 - Süresi dolan ön rezervasyon ve iptal edilen kayıt salonu boşaltır.
 - Ödeme kalan borcu, iade ödenen tutarı aşamaz. Ödemeler taksitlere sırayla düşülür.
-- Paket fiyatı sonradan değişse de yapılmış sözleşmeler değişmez.
+- Paket fiyatı = sabit tutar + kişi başı fiyat × davetli sayısı (davetli "en az kişi" sınırının altındaysa sınır kadar).
+  Kişi başı fiyatı 0 olan paket sabit fiyatlıdır.
+- Paket fiyatı sonradan değişse de yapılmış sözleşmeler değişmez (satış anındaki fiyatlar rezervasyona kopyalanır).
+- Kesin kayıtta davetli sayısı değişirse program yeni fiyatı gösterip sorar; onaylanırsa fark ödenmemiş son taksite
+  eklenir / ödenmemiş taksitlerden düşülür. Yeni tutar ödenmiş paradan az olamaz.
+- Organizasyon planı (rezervasyon → "Organizasyon planı"): saatlik akış ve müşterinin müzikleri; "Yazdır / PDF" ile çıktı alınır.
+  Akış, organizasyonun başlangıcına göre sıralanır (gece yarısını geçen düğünde 00:30 sona gelir). Müzik bağlantısı yalnızca
+  http(s) adresi olabilir. İptal edilen kaydın planı değiştirilemez.
 - Roller: **Yönetici** (her şey) ve **Çalışan** (rezervasyon, müşteri, ödeme alma). Ödeme kaydını iptal etmek yalnızca yöneticidedir.
 - Veritabanı şeması `core/src/db.rs` içindeki `MIGRATIONS` listesindedir; değişiklik için listenin sonuna yeni adım eklenir, eski adımlar değiştirilmez.

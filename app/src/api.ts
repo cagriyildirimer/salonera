@@ -97,6 +97,8 @@ export const api = {
   extend: (id: string, days: number) => post<null>(`/api/reservations/${id}/extend`, { days }),
   cancel: (id: string, reason: string) => post<null>(`/api/reservations/${id}/cancel`, { reason }),
   setPlan: (id: string, plan: T.InstallmentInput[]) => put<null>(`/api/reservations/${id}/plan`, { plan }),
+  program: (id: string) => get<T.Program>(`/api/reservations/${id}/program`),
+  saveProgram: (id: string, body: T.Program) => put<T.Program>(`/api/reservations/${id}/program`, body),
   takePayment: (id: string, body: T.PaymentInput) => post<string>(`/api/reservations/${id}/payments`, body),
   refund: (id: string, body: { amount: number; method: T.Method; reason: string }) =>
     post<string>(`/api/reservations/${id}/refunds`, body),

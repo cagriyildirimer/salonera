@@ -14,7 +14,7 @@ use crate::auth::{self, SessionUser};
 use crate::catalog::{self, ProductTable};
 use crate::error::{AppError, AppResult};
 use crate::model::*;
-use crate::{backup, customers, payments, reports, reservations, App, Ctx};
+use crate::{backup, customers, payments, program, reports, reservations, App, Ctx};
 
 type AppState = Arc<App>;
 
@@ -89,6 +89,7 @@ pub fn router(app: AppState) -> Router {
         .route("/api/reservations/{id}/plan", put(set_plan))
         .route("/api/reservations/{id}/payments", post(take_payment))
         .route("/api/reservations/{id}/refunds", post(refund))
+        .route("/api/reservations/{id}/program", get(get_program).put(save_program))
         .route("/api/payments", get(list_payments))
         .route("/api/payments/{id}", get(get_payment))
         .route("/api/payments/{id}/cancel", post(cancel_payment))
@@ -425,6 +426,19 @@ async fn refund(
     Json(body): Json<RefundRequest>,
 ) -> AppResult<Json<String>> {
     as_user(&app, user, move |c, ctx| payments::refund(c, ctx, &id, &body)).await
+}
+
+async fn get_program(State(app): State<AppState>, Auth(user): Auth, Path(id): Path<String>) -> AppResult<Json<Program>> {
+    as_user(&app, user, move |c, _| program::get(c, &id)).await
+}
+
+async fn save_program(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Path(id): Path<String>,
+    Json(body): Json<Program>,
+) -> AppResult<Json<Program>> {
+    as_user(&app, user, move |c, ctx| program::save(c, ctx, &id, &body)).await
 }
 
 async fn list_payments(State(app): State<AppState>, Auth(user): Auth, Query(q): Query<RangeQuery>) -> AppResult<Json<Vec<PaymentDto>>> {

@@ -121,3 +121,23 @@ export function statusLabel(status: Status, optionExpired = false): string {
 
 /** Telefonu arama bağlantısına çevirir. */
 export const telHref = (phone: string) => `tel:${phone.replace(/[^\d+]/g, "")}`;
+
+/** "SS:DD" saatine dakika ekler (gece yarısını geçerse başa döner). */
+export function addMinutes(time: string, minutes: number): string {
+  const [h, m] = time.split(":").map(Number);
+  const total = (((h * 60 + m + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/** Kullanıcının yazdığı saati "SS:DD" yapar: "2130", "21.30", "21:30", "9", "930" → geçersizse null. */
+export function normalizeClock(text: string): string | null {
+  const t = text.trim().replace(/[.,\s]/g, ":");
+  let h: number, m: number;
+  const parts = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (parts) { h = Number(parts[1]); m = Number(parts[2]); }
+  else if (/^\d{1,2}$/.test(t)) { h = Number(t); m = 0; }
+  else if (/^\d{3,4}$/.test(t)) { h = Number(t.slice(0, -2)); m = Number(t.slice(-2)); }
+  else return null;
+  if (h > 23 || m > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}

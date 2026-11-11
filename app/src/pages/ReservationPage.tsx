@@ -11,6 +11,7 @@ import {
   dateLong, dateTime, dateWithDay, installmentLabels, kindLabels, methodLabels, relativeDay, telHref, tl, today,
 } from "../format";
 import { suggestDeposit } from "../plan";
+import { billedGuests, breakdownText, packageTotal, tariffText } from "../pricing";
 import type { EventKind, HallAvailability, InstallmentInput, Method, ReservationDetail } from "../types";
 
 export function ReservationPage({ id }: { id: string }) {
@@ -18,6 +19,7 @@ export function ReservationPage({ id }: { id: string }) {
   const { confirm } = useFeedback();
   const { run, busy } = useAction();
   const { data, error, loading, reload } = useLoad(() => api.reservation(id), [id]);
+  const program = useLoad(() => api.program(id), [id]);
   const [modal, setModal] = useState<null | "pay" | "refund" | "edit" | "plan" | "extend">(null);
   const [converting, setConverting] = useState(false);
   const [justCreated] = useState(() => {
@@ -131,6 +133,7 @@ export function ReservationPage({ id }: { id: string }) {
                 <button className="btn" onClick={() => navigate({ name: "print", kind: "contract", id })}><Icon name="printer" /> Sözleşme</button>
               </>
             )}
+            <button className="btn" onClick={() => navigate({ name: "program", id })}><Icon name="list" /> Organizasyon planı</button>
             {!isCancelled && <button className="btn" onClick={() => setModal("edit")}><Icon name="edit" /> Tarih / salon değiştir</button>}
             <button className="btn" onClick={() => navigate({ name: "customer", id: r.customerId })}><Icon name="user" /> Müşteri bilgileri</button>
             <span className="spacer" />
@@ -226,6 +229,9 @@ export function ReservationPage({ id }: { id: string }) {
                 <div className="card">
                   <div className="card-title" style={{ marginBottom: 10 }}>Paket ve fiyat</div>
                   <div className="price-line"><span>{data.packageName}</span><span>{tl(data.packagePrice)}</span></div>
+                  {breakdownText(data.packagePricing, data.packagePrice) && (
+                    <div className="muted small" style={{ marginTop: -4, marginBottom: 6 }}>{breakdownText(data.packagePricing, data.packagePrice)}</div>
+                  )}
                   {data.extras.map((e) => <div key={e.name} className="price-line"><span>{e.name}</span><span>{tl(e.price)}</span></div>)}
                   {data.discount > 0 && <div className="price-line"><span className="k">İndirim</span><span style={{ color: "var(--success)" }}>− {tl(data.discount)}</span></div>}
                   <div className="hr" style={{ margin: "8px 0" }} />
@@ -235,6 +241,47 @@ export function ReservationPage({ id }: { id: string }) {
             </div>
           </div>
         )}
+
+        {/* Organizasyon planı özeti */}
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <div className="card-title">Organizasyon planı</div>
+              <div className="card-sub">Saatlik akış ve müşterinin seçtiği müzikler</div>
+            </div>
+            <div className="row" style={{ gap: 8 }}>
+              {program.data && (program.data.items.length > 0 || program.data.music.length > 0) && (
+                <button className="btn btn-ghost" onClick={() => navigate({ name: "print", kind: "program", id })}><Icon name="printer" size={18} /> Yazdır / PDF</button>
+              )}
+              <button className="btn btn-ghost" onClick={() => navigate({ name: "program", id })}><Icon name="edit" size={18} /> {program.data?.items.length || program.data?.music.length ? "Düzenle" : "Plan hazırla"}</button>
+            </div>
+          </div>
+          {program.data && program.data.items.length === 0 && program.data.music.length === 0 ? (
+            <div className="muted">Henüz plan yok. Yemek, pasta, takı töreni saatlerini ve giriş / ilk dans müziklerini buradan planlayabilirsiniz.</div>
+          ) : program.data && (
+            <div className="grid grid-2" style={{ alignItems: "start" }}>
+              <div className="list">
+                {program.data.items.map((it, i) => (
+                  <div key={i} className="list-item" style={{ cursor: "default", padding: "8px 4px" }}>
+                    <span className="strong" style={{ width: 56, color: "var(--primary)" }}>{it.time}</span>
+                    <span style={{ flex: 1 }}>{it.title}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="list">
+                {program.data.music.map((m, i) => (
+                  <div key={i} className="list-item" style={{ cursor: "default", padding: "8px 4px" }}>
+                    <Icon name="music" size={18} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="strong">{m.label}</div>
+                      <div className="item-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.song ?? m.link}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {data.notes && (
           <div className="card">
@@ -356,6 +403,7 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
   const [kind, setKind] = useState<EventKind>(r.kind);
   const [guests, setGuests] = useState(r.guestCount);
   const [notes, setNotes] = useState(detail.notes ?? "");
+  const [reprice, setReprice] = useState(true);
   const [halls, setHalls] = useState<HallAvailability[] | null>(null);
   const [error, setError] = useState("");
   const { run, busy } = useAction();
@@ -366,8 +414,20 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void check(); }, []);
 
+  // Kesin kayıtta kişi başı fiyatlı paket varsa, davetli sayısı değişince yeni fiyatı gösterip sorar.
+  // Hesap satış anındaki fiyatlarla yapılır (sunucudaki reprice ile aynı).
+  const pricing = detail.packagePricing;
+  const newPackagePrice = packageTotal(pricing, guests);
+  const priceChange = r.status === "kesin" && pricing.perGuestPrice > 0 && guests > 0 && guests !== r.guestCount
+    && newPackagePrice !== detail.packagePrice
+    ? { newTotal: r.total + newPackagePrice - detail.packagePrice, billed: billedGuests(pricing, guests) }
+    : null;
+  const willReprice = !!priceChange && reprice;
+
   const save = async () => {
-    if (await run(() => api.updateReservation(r.id, { hallId, date, start, end, kind, guestCount: guests, notes: notes || null }), "Değişiklikler kaydedildi.")) onDone();
+    const body = { hallId, date, start, end, kind, guestCount: guests, notes: notes || null, reprice: willReprice };
+    const message = willReprice ? "Değişiklikler kaydedildi, fiyat ve ödeme planı güncellendi." : "Değişiklikler kaydedildi.";
+    if (await run(() => api.updateReservation(r.id, body), message)) onDone();
   };
 
   return (
@@ -400,6 +460,33 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
           </Field>
           <Field label="Davetli sayısı"><NumberInput value={guests} onChange={setGuests} /></Field>
         </div>
+        {priceChange && (
+          <div className="card" style={{ background: "var(--primary-soft)", boxShadow: "none" }}>
+            <div className="strong">Davetli sayısı değişti, paket fiyatı da değişiyor</div>
+            <div className="price-line" style={{ marginTop: 8 }}>
+              <span className="k">Şimdiki toplam ({r.guestCount} davetli)</span><span>{tl(r.total)}</span>
+            </div>
+            <div className="price-line strong">
+              <span>Yeni toplam ({guests} davetli{priceChange.billed > guests ? `, ${priceChange.billed} kişi üzerinden` : ""})</span>
+              <span>{tl(priceChange.newTotal)}</span>
+            </div>
+            <div className="muted small" style={{ marginBottom: 10 }}>{tariffText(pricing)} · sözleşmedeki fiyatlarla</div>
+            <label className="checkbox">
+              <input type="checkbox" checked={reprice} onChange={(e) => setReprice(e.target.checked)} />
+              <span><b>Fiyatı ve ödeme planını güncelle</b><br />
+                <span className="muted small">
+                  {priceChange.newTotal > r.total
+                    ? `Fark (${tl(priceChange.newTotal - r.total)}) ödenmemiş son taksite eklenir.`
+                    : `Fark (${tl(r.total - priceChange.newTotal)}) ödenmemiş taksitlerden düşülür.`}
+                  {" "}İşaretlemezseniz sözleşme tutarı değişmez.
+                </span>
+              </span>
+            </label>
+            {willReprice && priceChange.newTotal < r.paid && (
+              <Alert kind="danger">Müşteri şimdiye kadar {tl(r.paid)} ödedi; yeni tutar bundan az olamaz. Önce iade yapın.</Alert>
+            )}
+          </div>
+        )}
         <Field label="Notlar"><textarea className="textarea" value={notes} onChange={(e) => setNotes(e.target.value)} /></Field>
         {error && <Alert kind="danger">{error}</Alert>}
       </div>
@@ -486,8 +573,8 @@ function ConvertOption({ detail, onDone, onCancel }: { detail: ReservationDetail
   const { run, busy } = useAction();
   const { navigate } = useSession();
   if (!catalog.data) return <div className="content"><Loading /></div>;
-  const { total } = saleTotals(sale, catalog.data.packages, catalog.data.extras);
   const r = detail.summary;
+  const { total } = saleTotals(sale, catalog.data.packages, catalog.data.extras, r.guestCount);
 
   const save = async () => {
     let paymentId: string | null = null;
@@ -508,7 +595,7 @@ function ConvertOption({ detail, onDone, onCancel }: { detail: ReservationDetail
             <p className="muted">{dateWithDay(r.date)} · {r.hallName}</p>
           </div>
           {step === "package"
-            ? <PackagePicker sale={sale} onChange={setSale} packages={catalog.data.packages} extras={catalog.data.extras} />
+            ? <PackagePicker sale={sale} onChange={setSale} packages={catalog.data.packages} extras={catalog.data.extras} guests={r.guestCount} />
             : <PaymentPlanner sale={sale} onChange={setSale} total={total} todayIso={today()} eventIso={r.date} />}
         </div>
       </div>

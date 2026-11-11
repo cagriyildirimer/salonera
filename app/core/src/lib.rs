@@ -12,6 +12,7 @@ pub mod discovery;
 pub mod error;
 pub mod model;
 pub mod payments;
+pub mod program;
 pub mod reports;
 pub mod reservations;
 pub mod server;

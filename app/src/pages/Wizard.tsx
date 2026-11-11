@@ -9,6 +9,7 @@ import {
 import { Alert, Empty, errorText, Field, Loading, NumberInput, TimeSelect, useLoad } from "../components/ui";
 import { dateWithDay, kindLabels, methodLabels, tl, today } from "../format";
 import { suggestDeposit } from "../plan";
+import { billedGuests, pricingOf } from "../pricing";
 import type { Customer, CustomerInput, EventKind, HallAvailability } from "../types";
 
 const STEPS = ["Tarih ve salon", "Müşteri", "Kayıt türü ve paket", "Ödeme", "Kontrol ve onay"];
@@ -92,7 +93,7 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
 
   const packages = catalog.data?.packages ?? [];
   const extras = catalog.data?.extras ?? [];
-  const { pkg, total } = saleTotals(sale, packages, extras);
+  const { pkg, packagePrice, total } = saleTotals(sale, packages, extras, guests);
   const hall = availability?.find((h) => h.hallId === hallId) ?? null;
   const skipsPayment = isOption;
 
@@ -188,14 +189,14 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
     } else {
       const extraNames = extras.filter((e) => sale.extraIds.includes(e.id)).map((e) => e.name);
       rows.push(["Kayıt türü", "Kesin kayıt (sözleşme hazırlanır)"]);
-      rows.push(["Paket", pkg?.name ?? "—"]);
+      rows.push(["Paket", pkg ? `${pkg.name} · ${tl(packagePrice)}${pkg.perGuestPrice > 0 ? ` (${billedGuests(pricingOf(pkg), guests)} kişi)` : ""}` : "—"]);
       rows.push(["Ek hizmetler", extraNames.length ? extraNames.join(", ") : "Yok"]);
       if (sale.discount) rows.push(["İndirim", tl(sale.discount)]);
       rows.push(["Toplam tutar", tl(total)]);
       if (sale.takeNow && sale.deposit > 0) rows.push(["Bugün alınan kapora", `${tl(Math.min(sale.deposit, total))} · ${methodLabels[sale.method]}`]);
     }
     return rows;
-  }, [date, start, end, hall, kind, guests, customerMode, customerName, newCustomer.phone, selectedCustomer, isOption, optionDays, extras, sale, pkg, total]);
+  }, [date, start, end, hall, kind, guests, customerMode, customerName, newCustomer.phone, selectedCustomer, isOption, optionDays, extras, sale, pkg, packagePrice, total]);
 
   if (halls.loading || catalog.loading) return <Loading />;
 
@@ -354,7 +355,7 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
                   </Field>
                 </div>
               ) : (
-                <PackagePicker sale={sale} onChange={setSale} packages={packages} extras={extras} />
+                <PackagePicker sale={sale} onChange={setSale} packages={packages} extras={extras} guests={guests} />
               )}
             </div>
           )}

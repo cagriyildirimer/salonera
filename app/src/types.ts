@@ -22,7 +22,17 @@ export interface BusinessSettings {
 }
 
 export interface Hall { id: string; name: string; capacity: number; isActive: boolean }
-export interface Product { id: string; name: string; description: string | null; price: number; isActive: boolean }
+/** Paketlerde `price` sabit tutardır; üzerine kişi başı × max(davetli, minGuests) eklenir. Ek hizmetlerde ikisi 0. */
+export interface Product {
+  id: string;
+  name: string;
+  description: string | null;
+  price: number;
+  perGuestPrice: number;
+  minGuests: number;
+  isActive: boolean;
+}
+export interface PackagePricing { basePrice: number; perGuestPrice: number; minGuests: number }
 
 export interface Customer {
   id: string;
@@ -88,6 +98,7 @@ export interface ReservationDetail {
   summary: ReservationSummary;
   packageName: string | null;
   packagePrice: number;
+  packagePricing: PackagePricing;
   extras: { name: string; price: number }[];
   discount: number;
   notes: string | null;
@@ -98,6 +109,11 @@ export interface ReservationDetail {
   createdAt: string;
   confirmedAt: string | null;
 }
+
+/** Organizasyon planı: saatlik akış ve müşterinin seçtiği müzikler. */
+export interface ProgramItem { time: string; title: string; note: string | null }
+export interface MusicItem { label: string; song: string | null; link: string | null }
+export interface Program { items: ProgramItem[]; music: MusicItem[]; notes: string | null }
 
 export interface InstallmentInput { label: string; dueDate: string; amount: number }
 export interface PaymentInput { amount: number; method: Method; note?: string | null }

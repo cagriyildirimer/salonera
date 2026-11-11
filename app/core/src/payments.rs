@@ -53,7 +53,7 @@ pub fn list_between(conn: &Connection, from: NaiveDate, to: NaiveDate) -> AppRes
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-fn net_paid(conn: &Connection, reservation_id: &str) -> AppResult<i64> {
+pub(crate) fn net_paid(conn: &Connection, reservation_id: &str) -> AppResult<i64> {
     Ok(conn.query_row(
         "SELECT COALESCE(SUM(CASE WHEN is_refund = 1 THEN -amount ELSE amount END), 0)
          FROM payments WHERE reservation_id = ?1 AND is_cancelled = 0",

@@ -4,7 +4,8 @@ import { api } from "../api";
 import { Icon } from "../components/Icon";
 import { LoadError, Loading, useLoad } from "../components/ui";
 import { dateLong, dateTime, dateWithDay, kindLabels, methodLabels, tl, today } from "../format";
-import type { BusinessSettings, Customer, Payment, ReservationDetail } from "../types";
+import type { BusinessSettings, Customer, Payment, Program, ReservationDetail } from "../types";
+import { breakdownText } from "../pricing";
 import { moneyWords } from "../words";
 
 const paper: CSSProperties = {
@@ -13,40 +14,42 @@ const paper: CSSProperties = {
 };
 
 /** Yazdırılacak sözleşme veya makbuz. Üstteki çubuk yazıcıya çıkmaz. */
-export function PrintPage({ kind, id }: { kind: "contract" | "receipt"; id: string }) {
+export function PrintPage({ kind, id }: { kind: "contract" | "receipt" | "program"; id: string }) {
   const { back } = useSession();
   const data = useLoad(async () => {
     const settings = await api.settings();
-    if (kind === "contract") {
-      const detail = await api.reservation(id);
+    if (kind === "contract" || kind === "program") {
+      const [detail, program] = await Promise.all([api.reservation(id), kind === "program" ? api.program(id) : null]);
       const customer = (await api.customer(detail.summary.customerId)).customer;
-      return { settings, detail, customer, payment: null as Payment | null };
+      return { settings, detail, customer, payment: null as Payment | null, program };
     }
     const payment = await api.payment(id);
     const detail = await api.reservation(payment.reservationId);
     const customer = (await api.customer(detail.summary.customerId)).customer;
-    return { settings, detail, customer, payment };
+    return { settings, detail, customer, payment, program: null as Program | null };
   }, [kind, id]);
 
   return (
-    <div style={{ height: "100%", overflow: "auto", background: "#e9e2db" }}>
+    <div className="print-shell" style={{ height: "100%", overflow: "auto", background: "#e9e2db" }}>
       <div className="no-print" style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--sidebar)", padding: "12px 24px", display: "flex", gap: 12, alignItems: "center" }}>
         <button className="btn" onClick={back}><Icon name="back" size={18} /> Geri</button>
-        <span style={{ color: "#fff", fontSize: 18, fontWeight: 600, flex: 1 }}>{kind === "contract" ? "Sözleşme" : "Makbuz"}</span>
+        <span style={{ color: "#fff", fontSize: 18, fontWeight: 600, flex: 1 }}>{{ contract: "Sözleşme", receipt: "Makbuz", program: "Organizasyon planı" }[kind]}</span>
         <span style={{ color: "#c9aeb8" }}>PDF olarak kaydetmek için yazıcı olarak “Microsoft Print to PDF” seçin.</span>
         <button className="btn btn-gold" disabled={!data.data} onClick={() => window.print()}><Icon name="printer" /> Yazdır</button>
       </div>
-      <div style={{ padding: "24px 0 48px" }}>
+      <div className="print-pad" style={{ padding: "24px 0 48px" }}>
         {data.error && <div style={{ maxWidth: 800, margin: "0 auto" }}><LoadError message={data.error} onRetry={data.reload} /></div>}
         {!data.data ? !data.error && <Loading /> : (
           <div style={paper} className="paper">
-            {kind === "contract"
+            {kind === "program"
+              ? <ProgramSheet settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} program={data.data.program!} />
+              : kind === "contract"
               ? <Contract settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} />
               : <Receipt settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} payment={data.data.payment!} />}
           </div>
         )}
       </div>
-      <style>{`@media print { .paper { box-shadow: none !important; width: auto !important; min-height: 0 !important; padding: 0 !important; } div[style*="e9e2db"] { background: #fff !important; overflow: visible !important; } }`}</style>
+      <style>{`@media print { .paper { box-shadow: none !important; width: auto !important; min-height: 0 !important; padding: 0 !important; } .print-shell { background: #fff !important; overflow: visible !important; height: auto !important; } .print-pad { padding: 0 !important; } }`}</style>
     </div>
   );
 }
@@ -89,7 +92,7 @@ function InfoGrid({ rows }: { rows: [string, ReactNode][] }) {
 
 function Signatures({ left, right }: { left: string; right: string }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginTop: 36 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 40, marginTop: 36, breakInside: "avoid" }}>
       {[left, right].map((label) => (
         <div key={label} style={{ textAlign: "center" }}>
           <div style={{ height: 56 }} />
@@ -124,7 +127,15 @@ function Contract({ settings, detail, customer }: { settings: BusinessSettings; 
       <div style={h3}>Paket ve ücret</div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <tbody>
-          <tr><td style={cell}><b>{detail.packageName}</b></td><td style={num}>{tl(detail.packagePrice)}</td></tr>
+          <tr>
+            <td style={cell}>
+              <b>{detail.packageName}</b>
+              {breakdownText(detail.packagePricing, detail.packagePrice) && (
+                <div style={{ fontSize: "9pt", color: "#5a4a50" }}>{breakdownText(detail.packagePricing, detail.packagePrice)}</div>
+              )}
+            </td>
+            <td style={num}>{tl(detail.packagePrice)}</td>
+          </tr>
           {detail.extras.map((e) => <tr key={e.name}><td style={cell}>{e.name}</td><td style={num}>{tl(e.price)}</td></tr>)}
           {detail.discount > 0 && <tr><td style={cell}>Ara toplam</td><td style={num}>{tl(gross)}</td></tr>}
           {detail.discount > 0 && <tr><td style={cell}>İndirim</td><td style={num}>− {tl(detail.discount)}</td></tr>}
@@ -150,6 +161,70 @@ function Contract({ settings, detail, customer }: { settings: BusinessSettings; 
       <div style={{ whiteSpace: "pre-wrap", fontSize: "9.5pt" }}>{settings.contractTerms}</div>
       <p style={{ fontSize: "9pt", marginTop: 12 }}>İşbu sözleşme iki nüsha olarak düzenlenmiş ve taraflarca okunarak imzalanmıştır.</p>
       <Signatures left="Müşteri" right={settings.businessName} />
+    </>
+  );
+}
+
+function ProgramSheet({ settings, detail, customer, program }: { settings: BusinessSettings; detail: ReservationDetail; customer: Customer; program: Program }) {
+  const r = detail.summary;
+  const th: CSSProperties = { ...cell, textAlign: "left" };
+  const row: CSSProperties = { ...cell, padding: "3px 8px" }; // sıkı satırlar: plan tek sayfaya sığsın
+  return (
+    <>
+      <Letterhead settings={settings} title="ORGANİZASYON PLANI" no={r.no} date={dateLong(r.date)} />
+      <div style={h3}>Organizasyon</div>
+      <InfoGrid rows={[
+        ["Müşteri", customer.fullName],
+        ["Telefon", [customer.phone, customer.phone2].filter(Boolean).join(" / ")],
+        ...(customer.brideName || customer.groomName ? [["Gelin / damat", [customer.brideName, customer.groomName].filter(Boolean).join(" & ")] as [string, string]] : []),
+        ["Tarih", dateWithDay(r.date)],
+        ["Saat", `${r.start} – ${r.end}`],
+        ["Salon", r.hallName],
+        ["Türü", kindLabels[r.kind]],
+        ["Davetli sayısı", `${r.guestCount} kişi`],
+        ...(detail.packageName ? [["Paket", detail.packageName] as [string, string]] : []),
+      ]} />
+
+      <div style={h3}>Saatlik akış</div>
+      {program.items.length === 0 ? <div style={{ color: "#7a6a6f" }}>Akış henüz belirlenmedi.</div> : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#f6f0e9" }}><th style={{ ...th, width: "16mm" }}>Saat</th><th style={th}>Ne yapılacak</th><th style={th}>Not</th></tr></thead>
+          <tbody>
+            {program.items.map((it, i) => (
+              <tr key={i} style={{ breakInside: "avoid" }}>
+                <td style={{ ...row, fontWeight: 700, color: "#8a2846", fontSize: "11pt" }}>{it.time}</td>
+                <td style={{ ...row, fontWeight: 600 }}>{it.title}</td>
+                <td style={{ ...row, color: "#5a4a50" }}>{it.note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={h3}>Müzikler</div>
+      {program.music.length === 0 ? <div style={{ color: "#7a6a6f" }}>Müzik seçilmedi.</div> : (
+        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+          <thead><tr style={{ background: "#f6f0e9" }}><th style={{ ...th, width: "28%" }}>Ne zaman</th><th style={{ ...th, width: "30%" }}>Şarkı</th><th style={th}>Bağlantı</th></tr></thead>
+          <tbody>
+            {program.music.map((m, i) => (
+              <tr key={i} style={{ breakInside: "avoid" }}>
+                <td style={{ ...row, fontWeight: 600 }}>{m.label}</td>
+                <td style={row}>{m.song}</td>
+                <td style={{ ...row, fontSize: "8.5pt", wordBreak: "break-all", color: "#5a4a50" }}>{m.link}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {(program.notes || detail.notes) && (
+        <>
+          <div style={h3}>Notlar</div>
+          {program.notes && <div style={{ whiteSpace: "pre-wrap" }}>{program.notes}</div>}
+          {detail.notes && <div style={{ whiteSpace: "pre-wrap", marginTop: program.notes ? 6 : 0 }}>{detail.notes}</div>}
+        </>
+      )}
+      <Signatures left="Müşteri onayı" right={settings.businessName} />
     </>
   );
 }

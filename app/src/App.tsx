@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, configureApi, setToken } from "./api";
 import { Icon, type IconName } from "./components/Icon";
 import { FeedbackProvider, initials, Loading, useFeedback } from "./components/ui";
@@ -18,18 +18,20 @@ import { Payments } from "./pages/Payments";
 import { Reports } from "./pages/Reports";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PrintPage } from "./pages/PrintPage";
+import { ProgramPage } from "./pages/ProgramPage";
 
 export type Route =
   | { name: "home" }
   | { name: "calendar"; month?: string }
   | { name: "new"; date?: string; hallId?: string; customerId?: string }
   | { name: "reservation"; id: string }
+  | { name: "program"; id: string }
   | { name: "customers" }
   | { name: "customer"; id: string }
   | { name: "payments" }
   | { name: "reports" }
   | { name: "settings"; tab?: string }
-  | { name: "print"; kind: "contract" | "receipt"; id: string };
+  | { name: "print"; kind: "contract" | "receipt" | "program"; id: string };
 
 interface Session {
   user: User;
@@ -40,6 +42,11 @@ interface Session {
   /** Mevcut sayfanın yerine açar (geri tuşu bu sayfaya dönmez). */
   replace: (route: Route) => void;
   back: () => void;
+  /**
+   * Sayfada kaydedilmemiş değişiklik varsa uyarı metni verilir; menüden veya "Geri" ile çıkarken sorulur.
+   * Değişiklik kalmayınca null verilir.
+   */
+  setLeaveGuard: (message: string | null) => void;
   refreshInfo: () => Promise<void>;
   signOut: () => void;
 }
@@ -164,7 +171,7 @@ const NAV: NavItem[] = [
 ];
 
 const TITLES: Record<Route["name"], string> = {
-  home: "Ana Sayfa", calendar: "Takvim", new: "Yeni Rezervasyon", reservation: "Rezervasyon", customers: "Müşteriler",
+  home: "Ana Sayfa", calendar: "Takvim", new: "Yeni Rezervasyon", reservation: "Rezervasyon", program: "Organizasyon Planı", customers: "Müşteriler",
   customer: "Müşteri", payments: "Ödemeler", reports: "Raporlar", settings: "Ayarlar", print: "Yazdır",
 };
 
@@ -193,8 +200,15 @@ function Workspace({ config, info, user, onInfo, onSignOut }: {
 
   const refreshInfo = useCallback(async () => onInfo(await api.info()), [onInfo]);
 
+  const leaveGuard = useRef<string | null>(null);
+  const setLeaveGuard = useCallback((message: string | null) => { leaveGuard.current = message; }, []);
+
   const leaveWizard = async (go: () => void) => {
-    if (route.name === "new") {
+    if (leaveGuard.current) {
+      const ok = await confirm({ title: "Sayfadan çıkılsın mı?", message: leaveGuard.current, confirmText: "Evet, çık", danger: true });
+      if (!ok) return;
+      leaveGuard.current = null;
+    } else if (route.name === "new") {
       const ok = await confirm({
         title: "Rezervasyondan çıkılsın mı?",
         message: "Yeni rezervasyonu henüz kaydetmediniz. Çıkarsanız yazdığınız bilgiler silinir.",
@@ -206,9 +220,9 @@ function Workspace({ config, info, user, onInfo, onSignOut }: {
     go();
   };
 
-  const session: Session = { user, info, config, isAdmin, navigate, replace, back, refreshInfo, signOut: onSignOut };
+  const session: Session = { user, info, config, isAdmin, navigate, replace, back, setLeaveGuard, refreshInfo, signOut: onSignOut };
   // Menüden açılan sayfalarda "Geri" gösterilmez; yalnızca bir sayfanın içinden açılanlarda gösterilir.
-  const showBack = history.length > 1 && ["reservation", "customer"].includes(route.name);
+  const showBack = history.length > 1 && ["reservation", "customer", "program"].includes(route.name);
 
   if (route.name === "print") {
     return (
@@ -258,7 +272,7 @@ function Workspace({ config, info, user, onInfo, onSignOut }: {
         <main className="main">
           <header className="topbar no-print">
             {showBack && (
-              <button className="btn" onClick={back}><Icon name="back" size={18} /> Geri</button>
+              <button className="btn" onClick={() => leaveWizard(back)}><Icon name="back" size={18} /> Geri</button>
             )}
             <h1>{TITLES[route.name]}</h1>
           </header>
@@ -275,6 +289,7 @@ function Page({ route }: { route: Route }) {
     case "calendar": return <CalendarPage month={route.month} />;
     case "new": return <Wizard date={route.date} hallId={route.hallId} customerId={route.customerId} />;
     case "reservation": return <ReservationPage id={route.id} />;
+    case "program": return <ProgramPage id={route.id} />;
     case "customers": return <Customers />;
     case "customer": return <CustomerPage id={route.id} />;
     case "payments": return <Payments />;

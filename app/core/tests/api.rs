@@ -290,6 +290,144 @@ async fn confirmed_sale_with_deposit_plan_and_payments() {
 }
 
 #[tokio::test]
+async fn package_price_follows_guest_count() {
+    let api = Api::new().await;
+    let kristal = api.hall(0).await;
+    // 50.000 TL sabit + kişi başı 1.000 TL, en az 200 kişi üzerinden.
+    let menu = api
+        .ok(Method::POST, "/api/packages", json!({
+            "name": "Menü Paketi", "price": 50_000_00, "perGuestPrice": 1_000_00, "minGuests": 200, "isActive": true
+        }))
+        .await
+        .as_str()
+        .unwrap()
+        .to_string();
+    let listed = api.get("/api/packages").await;
+    assert_eq!(listed[0]["perGuestPrice"], 1_000_00);
+    assert_eq!(listed[0]["minGuests"], 200);
+
+    // 150 davetli, en az 200 kişi sınırına takılır: 50.000 + 200 × 1.000 = 250.000 TL.
+    let created = api
+        .ok(Method::POST, "/api/reservations", json!({
+            "newCustomer": new_customer("Selin Kaya"), "hallId": kristal, "date": "2026-09-12",
+            "start": "19:00", "end": "00:00", "kind": "dugun", "guestCount": 150,
+            "sale": {"packageId": menu, "firstPayment": {"amount": 50_000_00, "method": "nakit"}}
+        }))
+        .await;
+    let id = created["reservationId"].as_str().unwrap().to_string();
+    let path = format!("/api/reservations/{id}");
+    let detail = api.get(&path).await;
+    assert_eq!(detail["packagePrice"], 250_000_00);
+    assert_eq!(detail["summary"]["total"], 250_000_00);
+    assert_eq!(detail["packagePricing"]["perGuestPrice"], 1_000_00);
+
+    let edit = |guests: i64, reprice: bool| json!({
+        "hallId": kristal, "date": "2026-09-12", "start": "19:00", "end": "00:00",
+        "kind": "dugun", "guestCount": guests, "reprice": reprice
+    });
+
+    // Paket fiyatı sonradan artsa da yeniden hesaplama satış anındaki fiyatlarla yapılır.
+    api.ok(Method::PUT, &format!("/api/packages/{menu}"), json!({
+        "name": "Menü Paketi", "price": 90_000_00, "perGuestPrice": 2_000_00, "minGuests": 0, "isActive": true
+    })).await;
+
+    // "Fiyatı güncelleme" denirse sözleşme olduğu gibi kalır.
+    api.ok(Method::PUT, &path, edit(300, false)).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["guestCount"], 300);
+    assert_eq!(detail["summary"]["total"], 250_000_00);
+
+    // Güncellenirse: 50.000 + 350 × 1.000 = 400.000 TL; fark ödenmemiş son taksite eklenir.
+    api.ok(Method::PUT, &path, edit(350, true)).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["packagePrice"], 400_000_00);
+    assert_eq!(detail["summary"]["total"], 400_000_00);
+    let plan = detail["installments"].as_array().unwrap();
+    assert_eq!(plan.len(), 2);
+    assert_eq!(plan[0]["amount"], 50_000_00);
+    assert_eq!(plan[0]["state"], "odendi");
+    assert_eq!(plan[1]["amount"], 350_000_00);
+
+    // Azalınca en az kişi sınırı yine geçerli; fark ödenmemiş taksitten düşülür.
+    api.ok(Method::PUT, &path, edit(100, true)).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["total"], 250_000_00);
+    assert_eq!(detail["installments"][1]["amount"], 200_000_00);
+
+    // Hepsi ödenmişken davetli artarsa yeni bir "Ek ödeme" taksiti açılır.
+    api.ok(Method::POST, &format!("{path}/payments"), json!({"amount": 200_000_00, "method": "havale"})).await;
+    api.ok(Method::PUT, &path, edit(250, true)).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["total"], 300_000_00);
+    assert_eq!(detail["summary"]["remaining"], 50_000_00);
+    let plan = detail["installments"].as_array().unwrap();
+    assert_eq!(plan.len(), 3);
+    assert_eq!(plan[2]["label"], "Ek ödeme (davetli artışı)");
+    assert_eq!(plan[2]["amount"], 50_000_00);
+    assert_eq!(plan[2]["dueDate"], "2026-09-05");
+
+    // Yeni tutar ödenmiş paradan az olamaz; kişi sayısı da değişmeden kalır.
+    api.ok(Method::POST, &format!("{path}/payments"), json!({"amount": 50_000_00, "method": "nakit"})).await;
+    let message = api.rule_error(Method::PUT, &path, edit(150, true)).await;
+    assert!(message.contains("Önce iade yapın"), "{message}");
+    assert_eq!(api.get(&path).await["summary"]["guestCount"], 250);
+}
+
+#[tokio::test]
+async fn event_program_timeline_and_music() {
+    let api = Api::new().await;
+    let kristal = api.hall(0).await;
+    let created = api
+        .ok(Method::POST, "/api/reservations", option_request(&kristal, "2026-09-12", "19:00", "01:00", "Ece Demir"))
+        .await;
+    let id = created["reservationId"].as_str().unwrap().to_string();
+    let path = format!("/api/reservations/{id}/program");
+
+    // Boş plan.
+    let empty = api.get(&path).await;
+    assert_eq!(empty["items"].as_array().unwrap().len(), 0);
+    assert_eq!(empty["music"].as_array().unwrap().len(), 0);
+
+    // Akış saate göre sıralanır; gece yarısını geçen 00:30 en sona gelir. "www." bağlantısına https:// eklenir.
+    let saved = api
+        .ok(Method::PUT, &path, json!({
+            "items": [
+                {"time": "21:30", "title": "Takı töreni"},
+                {"time": "00:30", "title": "Kapanış"},
+                {"time": "20:00", "title": "Yemek servisi", "note": "Ana yemek 20:30"},
+                {"time": "21:00", "title": "Pasta kesimi"},
+                {"time": "18:30", "title": "Gelin hazırlık"}
+            ],
+            "music": [
+                {"label": "Giriş müziği", "song": "Can't Help Falling in Love", "link": "https://youtu.be/vGJTaP6anOU"},
+                {"label": "İlk dans", "link": "www.youtube.com/watch?v=abc"}
+            ],
+            "notes": "Masalar beyaz örtü"
+        }))
+        .await;
+    let times: Vec<&str> = saved["items"].as_array().unwrap().iter().map(|x| x["time"].as_str().unwrap()).collect();
+    assert_eq!(times, ["18:30", "20:00", "21:00", "21:30", "00:30"]);
+    assert_eq!(saved["items"][1]["note"], "Ana yemek 20:30");
+    assert_eq!(saved["music"][1]["link"], "https://www.youtube.com/watch?v=abc");
+    assert_eq!(api.get(&path).await["notes"], "Masalar beyaz örtü");
+
+    // Hatalı girişler.
+    let message = api.rule_error(Method::PUT, &path, json!({"items": [{"time": "25:00", "title": "Pasta"}]})).await;
+    assert!(message.contains("saati geçersiz"), "{message}");
+    let message = api.rule_error(Method::PUT, &path, json!({"music": [{"label": "Çıkış", "link": "javascript:alert(1)"}]})).await;
+    assert!(message.contains("bağlantısı geçersiz"), "{message}");
+    let message = api.rule_error(Method::PUT, &path, json!({"music": [{"label": "Çıkış"}]})).await;
+    assert!(message.contains("şarkı adını"), "{message}");
+    // Hatalı kayıt planı bozmaz.
+    assert_eq!(api.get(&path).await["items"].as_array().unwrap().len(), 5);
+
+    // İptal edilen kaydın planı değiştirilemez.
+    api.ok(Method::POST, &format!("/api/reservations/{id}/cancel"), json!({"reason": "Vazgeçtiler"})).await;
+    let message = api.rule_error(Method::PUT, &path, json!({"items": []})).await;
+    assert!(message.contains("İptal edilmiş"), "{message}");
+}
+
+#[tokio::test]
 async fn option_becomes_confirmed_and_rules_hold() {
     let api = Api::new().await;
     let bahce = api.hall(1).await;

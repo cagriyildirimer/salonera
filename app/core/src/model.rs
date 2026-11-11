@@ -147,7 +147,8 @@ pub struct SaveHallRequest {
     pub is_active: bool,
 }
 
-/// Paket ve ek hizmet aynı yapıdadır.
+/// Paket ve ek hizmet aynı yapıdadır. Paketlerde `price` sabit tutardır; üzerine
+/// `per_guest_price × max(davetli, min_guests)` eklenir. Ek hizmetlerde bu iki alan 0'dır.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductDto {
@@ -155,6 +156,8 @@ pub struct ProductDto {
     pub name: String,
     pub description: Option<String>,
     pub price: i64,
+    pub per_guest_price: i64,
+    pub min_guests: i64,
     pub is_active: bool,
 }
 
@@ -164,7 +167,31 @@ pub struct SaveProductRequest {
     pub name: String,
     pub description: Option<String>,
     pub price: i64,
+    #[serde(default)]
+    pub per_guest_price: i64,
+    #[serde(default)]
+    pub min_guests: i64,
     pub is_active: bool,
+}
+
+/// Paket fiyatlandırması: sabit tutar + kişi başı × ücretlendirilen kişi sayısı.
+#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PackagePricing {
+    pub base_price: i64,
+    pub per_guest_price: i64,
+    pub min_guests: i64,
+}
+
+impl PackagePricing {
+    /// Ücretlendirilen kişi sayısı: davetli sayısı, "en az kişi" sınırının altındaysa sınır kadar.
+    pub fn billed_guests(&self, guests: i64) -> i64 {
+        if self.per_guest_price == 0 { 0 } else { guests.max(self.min_guests) }
+    }
+
+    pub fn total(&self, guests: i64) -> i64 {
+        self.base_price + self.per_guest_price * self.billed_guests(guests)
+    }
 }
 
 // ---------------- Müşteri ----------------
@@ -265,7 +292,10 @@ pub struct PaymentDto {
 pub struct ReservationDetail {
     pub summary: ReservationSummary,
     pub package_name: Option<String>,
+    /// Kişi sayısıyla hesaplanmış paket tutarı (sözleşmeye yazılan).
     pub package_price: i64,
+    /// Satış anındaki paket fiyatlandırması (paket sonradan değişse de bu kalır).
+    pub package_pricing: PackagePricing,
     pub extras: Vec<ExtraLine>,
     pub discount: i64,
     pub notes: Option<String>,
@@ -343,6 +373,10 @@ pub struct UpdateReservationRequest {
     pub kind: EventKind,
     pub guest_count: i64,
     pub notes: Option<String>,
+    /// Kesin kayıtta davetli sayısı değiştiyse paket fiyatı, toplam ve kalan taksitler
+    /// yeni kişi sayısına göre yeniden hesaplansın mı? (Ekran kullanıcıya sorar.)
+    #[serde(default)]
+    pub reprice: bool,
 }
 
 #[derive(Deserialize)]
@@ -428,4 +462,35 @@ pub struct BackupInfo {
     pub file_name: String,
     pub created_at: String,
     pub size_bytes: u64,
+}
+
+// ---------------- Organizasyon planı ----------------
+/// Saatlik akışta bir satır, ör. 21:00 – Pasta kesimi.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ProgramItem {
+    /// "SS:DD"
+    pub time: String,
+    pub title: String,
+    pub note: Option<String>,
+}
+
+/// Müşterinin seçtiği müzik, ör. "İlk dans müziği" – şarkı adı – bağlantı.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MusicItem {
+    pub label: String,
+    pub song: Option<String>,
+    pub link: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Program {
+    #[serde(default)]
+    pub items: Vec<ProgramItem>,
+    #[serde(default)]
+    pub music: Vec<MusicItem>,
+    /// Plana dair genel notlar (masa düzeni, süsleme rengi…).
+    pub notes: Option<String>,
 }

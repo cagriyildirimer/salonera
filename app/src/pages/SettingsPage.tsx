@@ -4,6 +4,7 @@ import { api } from "../api";
 import { Icon, type IconName } from "../components/Icon";
 import { Alert, Empty, Field, LoadError, Loading, Modal, MoneyInput, NumberInput, useAction, useFeedback, useLoad } from "../components/ui";
 import { dateTime, roleLabels, tl } from "../format";
+import { packageTotal, pricingOf, tariffText } from "../pricing";
 import { shell } from "../shell";
 import type { BusinessSettings, Hall, Product, Role, User } from "../types";
 
@@ -159,7 +160,7 @@ function ProductsTab({ kind }: { kind: "packages" | "extras" }) {
             {data!.map((p) => (
               <tr key={p.id} className="clickable" onClick={() => setEditing(p)}>
                 <td><span className="strong">{p.name}</span>{p.description && <div className="muted small">{p.description}</div>}</td>
-                <td className="num strong">{tl(p.price)}</td>
+                <td className="num strong">{isPackage ? tariffText(pricingOf(p)) : tl(p.price)}</td>
                 <td>{p.isActive ? <span className="badge badge-success">Satışta</span> : <span className="badge badge-muted">Satıştan kaldırıldı</span>}</td>
                 <td className="num"><Icon name="edit" size={18} /></td>
               </tr>
@@ -177,10 +178,15 @@ function ProductModal({ kind, product, onClose, onDone }: { kind: "packages" | "
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product?.price ?? 0);
+  const [perGuestPrice, setPerGuestPrice] = useState(product?.perGuestPrice ?? 0);
+  const [minGuests, setMinGuests] = useState(product?.minGuests ?? 0);
   const [active, setActive] = useState(product?.isActive ?? true);
   const { run, busy } = useAction();
+  const pricing = { basePrice: price, perGuestPrice, minGuests: perGuestPrice > 0 ? minGuests : 0 };
   const save = () => run(() => {
-    const body = { name, description: description || null, price, isActive: active };
+    const body = isPackage
+      ? { name, description: description || null, price, perGuestPrice, minGuests: pricing.minGuests, isActive: active }
+      : { name, description: null, price, perGuestPrice: 0, minGuests: 0, isActive: active };
     return isPackage ? api.savePackage(product?.id ?? null, body) : api.saveExtra(product?.id ?? null, body);
   }, "Kaydedildi.");
   return (
@@ -194,7 +200,30 @@ function ProductModal({ kind, product, onClose, onDone }: { kind: "packages" | "
             <textarea className="textarea" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Yemek, pasta, DJ, süsleme…" />
           </Field>
         )}
-        <Field label="Fiyatı (KDV dahil)"><MoneyInput value={price} onChange={setPrice} /></Field>
+        {isPackage ? (
+          <>
+            <div className="grid grid-2" style={{ gap: 14 }}>
+              <Field label="Kişi başı fiyat (KDV dahil)" hint="Davetli sayısıyla çarpılır. Paket kişi sayısından bağımsızsa boş bırakın.">
+                <MoneyInput value={perGuestPrice} onChange={setPerGuestPrice} />
+              </Field>
+              <Field label="Sabit tutar (KDV dahil)" hint="Kişi sayısından bağımsız kısım (salon kirası gibi). Yoksa boş bırakın.">
+                <MoneyInput value={price} onChange={setPrice} />
+              </Field>
+            </div>
+            {perGuestPrice > 0 && (
+              <Field label="En az kişi (isteğe bağlı)" hint="Davetli bundan azsa fiyat bu kişi sayısı üzerinden hesaplanır. Sınır yoksa boş bırakın.">
+                <NumberInput value={minGuests} onChange={setMinGuests} />
+              </Field>
+            )}
+            {perGuestPrice > 0 && (
+              <div className="muted small">
+                Örnek: 500 davetli → <b>{tl(packageTotal(pricing, 500))}</b> · 1000 davetli → <b>{tl(packageTotal(pricing, 1000))}</b>
+              </div>
+            )}
+          </>
+        ) : (
+          <Field label="Fiyatı (KDV dahil)"><MoneyInput value={price} onChange={setPrice} /></Field>
+        )}
         <label className="checkbox"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Satışta</label>
       </div>
       <div className="modal-actions">

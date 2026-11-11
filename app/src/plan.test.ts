@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMonths, parseMoney } from "./format";
+import { addMinutes, addMonths, normalizeClock, parseMoney } from "./format";
 import { buildPlan, suggestDeposit } from "./plan";
 
 const sum = (plan: { amount: number }[]) => plan.reduce((s, x) => s + x.amount, 0);
@@ -71,5 +71,29 @@ describe("yazıyla tutar", () => {
     expect(numberWords(21_500)).toBe("YirmiBirBinBeşYüz");
     expect(numberWords(1_250_000)).toBe("BirMilyonİkiYüzElliBin");
     expect(moneyWords(1_550)).toBe("OnBeşTürkLirasıElliKuruş");
+  });
+});
+
+describe("organizasyon planı saatleri", () => {
+  it("dakika ekler, gece yarısını geçince başa döner", () => {
+    expect(addMinutes("19:00", 90)).toBe("20:30");
+    expect(addMinutes("23:45", 30)).toBe("00:15");
+    expect(addMinutes("00:00", -30)).toBe("23:30");
+  });
+});
+
+describe("saat girişi", () => {
+  it("farklı yazımları SS:DD yapar", () => {
+    expect(normalizeClock("2130")).toBe("21:30");
+    expect(normalizeClock("21.30")).toBe("21:30");
+    expect(normalizeClock("9")).toBe("09:00");
+    expect(normalizeClock("930")).toBe("09:30");
+    expect(normalizeClock("00:15")).toBe("00:15");
+  });
+  it("geçersizleri reddeder", () => {
+    expect(normalizeClock("25:00")).toBeNull();
+    expect(normalizeClock("21:7")).toBeNull();
+    expect(normalizeClock("abc")).toBeNull();
+    expect(normalizeClock("")).toBeNull();
   });
 });

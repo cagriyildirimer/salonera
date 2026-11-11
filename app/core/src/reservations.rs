@@ -302,14 +302,18 @@ fn apply_sale(
     event_date: NaiveDate,
     sale: &SaleInput,
 ) -> AppResult<Option<String>> {
-    let (package_name, package_price): (String, i64) = tx
+    let (package_name, pricing): (String, PackagePricing) = tx
         .query_row(
-            "SELECT name, price FROM packages WHERE id = ?1 AND is_active = 1",
+            "SELECT name, price, per_guest_price, min_guests FROM packages WHERE id = ?1 AND is_active = 1",
             [&sale.package_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| {
+                Ok((r.get(0)?, PackagePricing { base_price: r.get(1)?, per_guest_price: r.get(2)?, min_guests: r.get(3)? }))
+            },
         )
         .optional()?
         .ok_or_else(|| AppError::Rule("Seçilen paket bulunamadı veya satıştan kaldırılmış.".into()))?;
+    let guests: i64 = tx.query_row("SELECT guest_count FROM reservations WHERE id = ?1", [reservation_id], |r| r.get(0))?;
+    let package_price = pricing.total(guests);
     let mut extras = Vec::new();
     for extra_id in &sale.extra_ids {
         let extra: ExtraLine = tx
@@ -338,8 +342,19 @@ fn apply_sale(
     }
     tx.execute(
         "UPDATE reservations SET status = 'kesin', option_until = NULL, package_name = ?1, package_price = ?2,
-                discount = ?3, total = ?4, confirmed_at = ?5 WHERE id = ?6",
-        params![package_name, package_price, sale.discount, total, fmt_datetime(ctx.now), reservation_id],
+                discount = ?3, total = ?4, confirmed_at = ?5, package_base_price = ?6, package_per_guest = ?7,
+                package_min_guests = ?8 WHERE id = ?9",
+        params![
+            package_name,
+            package_price,
+            sale.discount,
+            total,
+            fmt_datetime(ctx.now),
+            pricing.base_price,
+            pricing.per_guest_price,
+            pricing.min_guests,
+            reservation_id
+        ],
     )?;
 
     let today = ctx.today();
@@ -444,6 +459,7 @@ pub fn update(conn: &mut Connection, ctx: &Ctx, id: &str, request: &UpdateReserv
     if existing.status == Status::Cancelled {
         return rule("İptal edilmiş rezervasyon değiştirilemez.");
     }
+    let old_guests: i64 = tx.query_row("SELECT guest_count FROM reservations WHERE id = ?1", [id], |r| r.get(0))?;
     // Geçmiş tarihli bir kaydın yalnızca notu/davetli sayısı düzeltiliyorsa tarih kontrolüne takılmasın.
     let today = if request.date == existing.starts.date() { request.date.min(ctx.today()) } else { ctx.today() };
     let (starts, ends) = validate_event(
@@ -470,8 +486,116 @@ pub fn update(conn: &mut Connection, ctx: &Ctx, id: &str, request: &UpdateReserv
         ],
     )?;
     audit(&tx, ctx, "rezervasyon_degisti", &existing.no)?;
+    if request.reprice && existing.status == Status::Confirmed && request.guest_count != old_guests {
+        if let Some((old_total, new_total)) = reprice(&tx, id, request.guest_count, ctx.today(), starts.date())? {
+            audit(
+                &tx,
+                ctx,
+                "fiyat_kisi_sayisina_gore_guncellendi",
+                format!(
+                    "{}: {} → {} kişi, {} → {}",
+                    existing.no,
+                    old_guests,
+                    request.guest_count,
+                    util::money(old_total),
+                    util::money(new_total)
+                ),
+            )?;
+        }
+    }
     tx.commit()?;
     Ok(())
+}
+
+/// Kesin kayıtta paket tutarını yeni davetli sayısıyla, satış anındaki fiyatlarla yeniden hesaplar;
+/// toplamı ve ödeme planını buna göre düzeltir. Fiyat değişmiyorsa hiçbir şey yapmaz.
+/// Değiştiyse (eski toplam, yeni toplam) döner.
+fn reprice(
+    tx: &Transaction<'_>,
+    id: &str,
+    guests: i64,
+    today: NaiveDate,
+    event_date: NaiveDate,
+) -> AppResult<Option<(i64, i64)>> {
+    let (pricing, old_package, discount, old_total) = tx.query_row(
+        "SELECT package_base_price, package_per_guest, package_min_guests, package_price, discount, total
+         FROM reservations WHERE id = ?1",
+        [id],
+        |r| {
+            Ok((
+                PackagePricing { base_price: r.get(0)?, per_guest_price: r.get(1)?, min_guests: r.get(2)? },
+                r.get::<_, i64>(3)?,
+                r.get::<_, i64>(4)?,
+                r.get::<_, i64>(5)?,
+            ))
+        },
+    )?;
+    let new_package = pricing.total(guests);
+    if pricing.per_guest_price == 0 || new_package == old_package {
+        return Ok(None);
+    }
+    let extras: i64 =
+        tx.query_row("SELECT COALESCE(SUM(price), 0) FROM reservation_extras WHERE reservation_id = ?1", [id], |r| r.get(0))?;
+    let gross = new_package + extras;
+    if discount > gross {
+        return rule(format!(
+            "Yapılmış indirim ({}) yeni tutardan ({}) büyük kalıyor. Fiyat güncellenemedi.",
+            util::money(discount),
+            util::money(gross)
+        ));
+    }
+    let new_total = gross - discount;
+    let paid = payments::net_paid(tx, id)?;
+    if new_total < paid {
+        return rule(format!(
+            "Müşteri şimdiye kadar {} ödedi; yeni tutar ({}) bundan az olamaz. Önce iade yapın, sonra davetli sayısını değiştirin.",
+            util::money(paid),
+            util::money(new_total)
+        ));
+    }
+    let plan = adjust_plan(&installment_rows(tx, id)?, paid, new_total - old_total, today, event_date);
+    tx.execute("UPDATE reservations SET package_price = ?1, total = ?2 WHERE id = ?3", params![new_package, new_total, id])?;
+    write_plan(tx, id, new_total, &plan)?;
+    Ok(Some((old_total, new_total)))
+}
+
+/// Toplam `delta` kadar değiştiğinde ödeme planını düzeltir. Ödenmiş kısımlara dokunulmaz:
+/// artış ödenmemiş son taksite eklenir (hepsi ödenmişse yeni bir "Ek ödeme" açılır);
+/// azalış sondan başlayarak ödenmemiş tutarlardan düşülür, sıfırlanan taksit kaldırılır.
+pub fn adjust_plan(
+    rows: &[(String, String, NaiveDate, i64)],
+    paid: i64,
+    delta: i64,
+    today: NaiveDate,
+    event_date: NaiveDate,
+) -> Vec<InstallmentInput> {
+    let allocated = allocate(rows, paid, today);
+    let mut plan: Vec<(InstallmentInput, i64)> = allocated
+        .iter()
+        .map(|x| (InstallmentInput { label: x.label.clone(), due_date: x.due_date, amount: x.amount }, x.paid))
+        .collect();
+    if delta > 0 {
+        match plan.iter_mut().rev().find(|(item, paid_here)| *paid_here < item.amount) {
+            Some((item, _)) => item.amount += delta,
+            None => {
+                let last_due = plan.last().map_or(today, |(item, _)| item.due_date);
+                let due = (event_date - Duration::days(7)).max(today).max(last_due);
+                plan.push((InstallmentInput { label: "Ek ödeme (davetli artışı)".into(), due_date: due, amount: delta }, 0));
+            }
+        }
+    } else if delta < 0 {
+        let mut left = -delta;
+        for (item, paid_here) in plan.iter_mut().rev() {
+            let cut = left.min(item.amount - *paid_here);
+            item.amount -= cut;
+            left -= cut;
+            if left == 0 {
+                break;
+            }
+        }
+        plan.retain(|(item, _)| item.amount > 0);
+    }
+    plan.into_iter().map(|(item, _)| item).collect()
 }
 
 pub fn cancel(conn: &mut Connection, ctx: &Ctx, id: &str, reason: &str) -> AppResult<()> {
@@ -526,7 +650,8 @@ pub fn set_plan(conn: &mut Connection, ctx: &Ctx, id: &str, plan: &[InstallmentI
 pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<ReservationDetail> {
     let summary = summary(conn, id, today)?;
     let row = conn.query_row(
-        "SELECT r.package_name, r.package_price, r.discount, r.notes, r.cancel_reason, u.name, r.created_at, r.confirmed_at
+        "SELECT r.package_name, r.package_price, r.discount, r.notes, r.cancel_reason, u.name, r.created_at, r.confirmed_at,
+                r.package_base_price, r.package_per_guest, r.package_min_guests
          FROM reservations r JOIN users u ON u.id = r.created_by WHERE r.id = ?1",
         [id],
         |r| {
@@ -539,6 +664,7 @@ pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<Reserv
                 r.get::<_, String>(5)?,
                 r.get::<_, String>(6)?,
                 r.get::<_, Option<String>>(7)?,
+                PackagePricing { base_price: r.get(8)?, per_guest_price: r.get(9)?, min_guests: r.get(10)? },
             ))
         },
     )?;
@@ -552,6 +678,7 @@ pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<Reserv
         summary,
         package_name: row.0,
         package_price: row.1,
+        package_pricing: row.8,
         extras,
         discount: row.2,
         notes: row.3,

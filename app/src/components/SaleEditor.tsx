@@ -1,5 +1,6 @@
 import { tl, dateLong, methodLabels } from "../format";
 import { buildPlan } from "../plan";
+import { billedGuests, packageTotal, pricingOf, tariffText } from "../pricing";
 import type { Method, Product, SaleInput } from "../types";
 import { Icon } from "./Icon";
 import { Empty, Field, MoneyInput } from "./ui";
@@ -18,11 +19,13 @@ export const emptySale = (): SaleState => ({
   packageId: null, extraIds: [], discount: 0, deposit: 0, takeNow: true, method: "nakit", count: 1,
 });
 
-export function saleTotals(sale: SaleState, packages: Product[], extras: Product[]) {
+/** Seçilen paket (kişi sayısıyla), ek hizmetler ve indirimle toplam. Sunucudaki hesapla aynıdır. */
+export function saleTotals(sale: SaleState, packages: Product[], extras: Product[], guests: number) {
   const pkg = packages.find((p) => p.id === sale.packageId);
+  const packagePrice = pkg ? packageTotal(pricingOf(pkg), guests) : 0;
   const extrasTotal = extras.filter((e) => sale.extraIds.includes(e.id)).reduce((s, e) => s + e.price, 0);
-  const gross = (pkg?.price ?? 0) + extrasTotal;
-  return { pkg, gross, total: Math.max(gross - sale.discount, 0) };
+  const gross = packagePrice + extrasTotal;
+  return { pkg, packagePrice, gross, total: Math.max(gross - sale.discount, 0) };
 }
 
 export function toSaleInput(sale: SaleState, total: number, todayIso: string, eventIso: string): SaleInput {
@@ -37,10 +40,10 @@ export function toSaleInput(sale: SaleState, total: number, todayIso: string, ev
 }
 
 /** Paket, ek hizmetler, indirim ve canlı toplam. */
-export function PackagePicker({ sale, onChange, packages, extras }: {
-  sale: SaleState; onChange: (s: SaleState) => void; packages: Product[]; extras: Product[];
+export function PackagePicker({ sale, onChange, packages, extras, guests }: {
+  sale: SaleState; onChange: (s: SaleState) => void; packages: Product[]; extras: Product[]; guests: number;
 }) {
-  const { gross, total } = saleTotals(sale, packages, extras);
+  const { pkg, packagePrice, gross, total } = saleTotals(sale, packages, extras, guests);
   const toggleExtra = (id: string) =>
     onChange({ ...sale, extraIds: sale.extraIds.includes(id) ? sale.extraIds.filter((x) => x !== id) : [...sale.extraIds, id] });
 
@@ -49,22 +52,32 @@ export function PackagePicker({ sale, onChange, packages, extras }: {
       <div className="stack">
         <div className="card">
           <div className="card-title">Paket</div>
-          <div className="card-sub" style={{ marginBottom: 16 }}>Müşterinin seçtiği paket</div>
+          <div className="card-sub" style={{ marginBottom: 16 }}>Müşterinin seçtiği paket · fiyatlar {guests} davetliye göre</div>
           {packages.length === 0 ? (
             <Empty icon="package">Henüz paket tanımlanmamış. Yönetici, Ayarlar → Paketler bölümünden paket eklemelidir.</Empty>
           ) : (
             <div className="grid grid-2" style={{ gap: 12 }}>
-              {packages.map((p) => (
+              {packages.map((p) => {
+                const pricing = pricingOf(p);
+                const billed = billedGuests(pricing, guests);
+                return (
                 <button key={p.id} className={`choice ${sale.packageId === p.id ? "selected" : ""}`} style={{ alignItems: "flex-start" }}
                   onClick={() => onChange({ ...sale, packageId: p.id })}>
                   <div style={{ minWidth: 0 }}>
                     <div className="choice-title">{p.name}</div>
                     {p.description && <div className="choice-sub">{p.description}</div>}
-                    <div className="choice-price">{tl(p.price, true)}</div>
+                    <div className="choice-price">{tl(packageTotal(pricing, guests), true)}</div>
+                    {p.perGuestPrice > 0 && (
+                      <div className="choice-sub">
+                        {tariffText(pricing)}
+                        {billed > guests && <><br />{guests} davetli, {billed} kişi üzerinden hesaplandı</>}
+                      </div>
+                    )}
                   </div>
                   <span className="tick"><Icon name="check" size={15} strokeWidth={3} /></span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -93,6 +106,11 @@ export function PackagePicker({ sale, onChange, packages, extras }: {
           <MoneyInput value={sale.discount} onChange={(v) => onChange({ ...sale, discount: v })} />
         </Field>
         <div className="hr" />
+        {pkg && pkg.perGuestPrice > 0 && (
+          <div className="price-line">
+            <span className="k">Paket ({billedGuests(pricingOf(pkg), guests)} kişi)</span><span>{tl(packagePrice)}</span>
+          </div>
+        )}
         <div className="price-line"><span className="k">Paket + ek hizmetler</span><span>{tl(gross)}</span></div>
         <div className="price-line"><span className="k">İndirim</span><span style={{ color: "var(--success)" }}>{sale.discount ? `− ${tl(sale.discount)}` : "—"}</span></div>
         {sale.discount > gross && <div className="form-error">İndirim toplam fiyattan büyük olamaz.</div>}
