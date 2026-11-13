@@ -30,9 +30,32 @@ export interface Product {
   price: number;
   perGuestPrice: number;
   minGuests: number;
+  /** Yalnızca ek hizmetlerde: seçenek grubu (ör. "Pasta"); aynı gruptan tek seçim. */
+  groupName: string | null;
   isActive: boolean;
 }
+/** Rezervasyondaki ek hizmet; `price` kişi sayısıyla hesaplanmış tutardır. */
+export interface ExtraLine {
+  extraId: string | null;
+  name: string;
+  groupName: string | null;
+  price: number;
+  basePrice: number;
+  perGuest: number;
+}
 export interface PackagePricing { basePrice: number; perGuestPrice: number; minGuests: number }
+
+/** Menüdeki bir yemek, ör. { course: "Ana yemek", name: "Kuzu tandır" }. */
+export interface MenuDish { course: string; name: string }
+/** Yemek menüsü. `perGuestPrice` kişi başı farktır (0 = paket fiyatına dahil). */
+export interface Menu {
+  id: string;
+  name: string;
+  description: string | null;
+  perGuestPrice: number;
+  isActive: boolean;
+  items: MenuDish[];
+}
 
 export interface Customer {
   id: string;
@@ -99,7 +122,13 @@ export interface ReservationDetail {
   packageName: string | null;
   packagePrice: number;
   packagePricing: PackagePricing;
-  extras: { name: string; price: number }[];
+  extras: ExtraLine[];
+  /** Seçilen menü (satış anındaki adı ve kişi başı farkı). */
+  menuName: string | null;
+  menuPerGuest: number;
+  menuPrice: number;
+  menuItems: MenuDish[];
+  menuNotes: string | null;
   discount: number;
   notes: string | null;
   cancelReason: string | null;
@@ -121,6 +150,7 @@ export interface PaymentInput { amount: number; method: Method; note?: string | 
 export interface SaleInput {
   packageId: string;
   extraIds: string[];
+  menuId: string | null;
   discount: number;
   plan: InstallmentInput[];
   firstPayment: PaymentInput | null;
@@ -155,6 +185,30 @@ export interface Dashboard {
 export interface MonthRow { month: number; eventCount: number; sales: number; collected: number; refunded: number }
 export interface YearReport { year: number; months: MonthRow[]; totalSales: number; totalCollected: number; totalRefunded: number }
 export interface HallUsageRow { hallName: string; eventCount: number; sales: number }
+export interface SalesExtra { name: string; groupName: string | null; price: number }
+export interface SalesRow {
+  id: string; no: string; date: string; hallName: string; customerName: string; kind: EventKind; guestCount: number;
+  status: Status; packageName: string | null; packagePrice: number; menuName: string | null; menuPrice: number;
+  discount: number; total: number; paid: number; extras: SalesExtra[]; createdOn: string; createdBy: string;
+  cancelReason: string | null;
+}
+export interface DueRow {
+  reservationId: string; no: string; customerName: string; customerPhone: string; eventDate: string; hallName: string;
+  label: string; dueDate: string; amount: number; paid: number; state: InstallmentState;
+}
 export interface BackupInfo { fileName: string; createdAt: string; sizeBytes: number }
 export interface FoundServer { address: string; port: number; businessName: string; machineName: string }
 export interface ShellConfig { mode: "main" | "client" | null; serverUrl: string | null }
+
+// ---------------- Takvim eşitleme (Google Takvim / Outlook) ----------------
+export type CalendarProvider = "google" | "microsoft";
+export interface CalendarAccount {
+  id: string; provider: CalendarProvider; email: string; calendarName: string; connectedAt: string;
+  lastSyncAt: string | null; lastError: string | null; needsReconnect: boolean; eventCount: number;
+}
+export interface CalendarSyncStatus {
+  googleAvailable: boolean; microsoftAvailable: boolean; accounts: CalendarAccount[];
+  pending: { provider: CalendarProvider; authUrl: string; error: string | null } | null;
+  syncing: boolean;
+  demo: boolean;
+}

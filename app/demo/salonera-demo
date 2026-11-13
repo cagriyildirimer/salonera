@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Salonera demo ortamı: örnek verili programı tarayıcıda açar ve kapatır.
+#
+#   salonera-demo ac       Demo'yu başlatır ve tarayıcıda açar (ilk seferde örnek veriyi doldurur).
+#   salonera-demo kapat    Demo'yu kapatır. Veri silinmez, sonraki açılışta kaldığı yerden devam eder.
+#   salonera-demo sifirla  Bütün demo verisini silip bugüne göre yeni örnek veriyle baştan kurar.
+#   salonera-demo durum    Açık mı kapalı mı gösterir.
+#
+# Giriş: ayse / Salon2026 (yönetici) · mehmet, elif / Salon2026 (çalışan)
+# Veri: ~/.salonera-demo (SALONERA_DEMO_DIR ile değiştirilebilir). Gerçek programın verisine dokunmaz.
+set -euo pipefail
+# Menüden açıldığında PATH kısa olabilir; cargo ve node'un bulunduğundan emin ol.
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:/usr/local/bin:$PATH"
+
+# Menüden (--bildirim ile) çalıştırılınca sonucu masaüstü bildirimi olarak da göster.
+if [[ "${2:-}" == "--bildirim" ]]; then
+  out=$("$0" "$1" 2>&1) || true
+  command -v notify-send >/dev/null && notify-send "Salonera Demo" "$(printf '%s\n' "$out" | tail -3)"
+  printf '%s\n' "$out"
+  exit 0
+fi
+
+APP="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+DATA="${SALONERA_DEMO_DIR:-$HOME/.salonera-demo}"
+API_PORT=47800
+WEB_PORT=5173
+URL="http://localhost:$WEB_PORT/?demo"
+
+say() { printf '%s\n' "$*"; }
+# Vite yalnızca "localhost" (IPv6 ::1 olabilir) üzerinde dinler; iki adres de denenir.
+port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null || (exec 3<>"/dev/tcp/::1/$1") 2>/dev/null; }
+pid_alive() { [[ -f "$DATA/$1.pid" ]] && kill -0 "$(cat "$DATA/$1.pid")" 2>/dev/null; }
+is_running() { pid_alive sunucu && pid_alive arayuz; }
+
+wait_port() {
+  for _ in $(seq 1 80); do port_busy "$1" && return 0; sleep 0.25; done
+  return 1
+}
+
+open_browser() {
+  if [[ "${SALONERA_DEMO_NO_BROWSER:-}" == "1" ]]; then return; fi
+  (xdg-open "$URL" >/dev/null 2>&1 &) || say "Tarayıcıda açın: $URL"
+}
+
+stop_one() {
+  local name=$1
+  if pid_alive "$name"; then
+    # Süreç grubunu kapat (npx → node → vite zinciri dahil).
+    kill -- -"$(cat "$DATA/$name.pid")" 2>/dev/null || kill "$(cat "$DATA/$name.pid")" 2>/dev/null || true
+  fi
+  rm -f "$DATA/$name.pid"
+}
+
+start() {
+  if is_running; then
+    say "Demo zaten açık: $URL"
+    open_browser
+    return
+  fi
+  stop_one sunucu; stop_one arayuz
+  for p in $API_PORT $WEB_PORT; do
+    if port_busy "$p"; then
+      say "Hata: $p portu başka bir program tarafından kullanılıyor (geliştirme sunucusu açık olabilir). Önce onu kapatın."
+      exit 1
+    fi
+  done
+  mkdir -p "$DATA"
+
+  say "Demo sunucusu hazırlanıyor…"
+  (cd "$APP" && cargo build -q -p salonera-core --example demo_server 2>"$DATA/derleme.log") || {
+    say "Derleme başarısız, ayrıntı: $DATA/derleme.log"; exit 1; }
+  rm -f "$DATA/demo-saat.txt"
+  setsid "$APP/target/debug/examples/demo_server" "$DATA" "$API_PORT" >"$DATA/sunucu.log" 2>&1 < /dev/null &
+  echo $! >"$DATA/sunucu.pid"
+  wait_port $API_PORT || { say "Sunucu açılmadı, ayrıntı: $DATA/sunucu.log"; stop_one sunucu; exit 1; }
+
+  if ! curl -s "http://127.0.0.1:$API_PORT/api/info" | grep -q '"isSetUp":true'; then
+    say "Örnek veriler dolduruluyor (birkaç saniye)…"
+    python3 "$APP/demo/ornek_veri.py" "$DATA" "http://127.0.0.1:$API_PORT" | tee "$DATA/ornek-veri.log" | sed 's/^/  /'
+  fi
+
+  [[ -d "$APP/node_modules" ]] || (cd "$APP" && npm install --silent)
+  # "cd" ayrı komut olmalı; "cd && setsid … &" yazılırsa $! alt kabuğu gösterir ve kapatırken vite açık kalır.
+  (cd "$APP" || exit 1
+   setsid ./node_modules/.bin/vite --port $WEB_PORT --strictPort >"$DATA/arayuz.log" 2>&1 < /dev/null &
+   echo $! >"$DATA/arayuz.pid")
+  wait_port $WEB_PORT || { say "Arayüz açılmadı, ayrıntı: $DATA/arayuz.log"; stop; exit 1; }
+
+  say ""
+  say "Demo açık: $URL"
+  say "Giriş: ayse / Salon2026 (yönetici) · mehmet veya elif / Salon2026 (çalışan)"
+  say "Kapatmak için: salonera-demo kapat"
+  open_browser
+}
+
+stop() {
+  if ! pid_alive sunucu && ! pid_alive arayuz; then
+    say "Demo zaten kapalı."
+    rm -f "$DATA/sunucu.pid" "$DATA/arayuz.pid"
+    return
+  fi
+  stop_one arayuz
+  stop_one sunucu
+  rm -f "$DATA/demo-saat.txt"
+  say "Demo kapatıldı. Veriler duruyor; tekrar açmak için: salonera-demo ac"
+}
+
+reset() {
+  stop >/dev/null
+  sleep 0.5
+  rm -rf "$DATA"
+  say "Demo verisi silindi, bugüne göre yeniden kuruluyor."
+  start
+}
+
+status() {
+  if is_running; then say "Demo açık: $URL  (veri: $DATA)"
+  else say "Demo kapalı. Açmak için: salonera-demo ac"; fi
+}
+
+case "${1:-}" in
+  ac|aç|baslat|başlat|start) start ;;
+  kapat|durdur|stop) stop ;;
+  sifirla|sıfırla|reset) reset ;;
+  durum|status) status ;;
+  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

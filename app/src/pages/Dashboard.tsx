@@ -1,8 +1,9 @@
 import { useSession } from "../App";
 import { api } from "../api";
 import { Icon, type IconName } from "../components/Icon";
+import { Rings } from "../components/Ornament";
 import { ReservationRow } from "../components/ReservationRow";
-import { Empty, LoadError, Loading, useLoad } from "../components/ui";
+import { Empty, LoadError, Loading, StatCard, type Tone, useLoad } from "../components/ui";
 import { dateWithDay, relativeDay, tl, today } from "../format";
 
 export function Dashboard() {
@@ -15,11 +16,20 @@ export function Dashboard() {
   return (
     <div className="content">
       <div className="content-wide stack">
-        <div className="hero">
+        <div className="hero rise">
+          <Rings size={330} className="hero-rings" />
           <div style={{ flex: 1 }}>
             <div className="date">{dateWithDay(today())}</div>
-            <h2>{greeting}, {user.name.split(" ")[0]}</h2>
-            <p>Yeni bir düğün, nişan veya kına kaydı için sağdaki düğmeye basın. Adım adım yol göstereceğiz.</p>
+            <h2>{greeting}, <em className="gold-text">{user.name.split(" ")[0]}</em></h2>
+            {data ? (
+              <div className="hero-chips">
+                <span className="hero-chip"><b>{data.today.length}</b> bugünkü organizasyon</span>
+                <span className="hero-chip"><b>{data.weekCount}</b> bu hafta</span>
+                {data.options.length > 0 && <span className="hero-chip"><b>{data.options.length}</b> ön rezervasyon bekliyor</span>}
+              </div>
+            ) : (
+              <p>Yeni bir düğün, nişan veya kına kaydı için sağdaki düğmeye basın. Adım adım yol göstereceğiz.</p>
+            )}
           </div>
           <button className="btn btn-gold btn-big" onClick={() => navigate({ name: "new" })}>
             <Icon name="plus" size={24} strokeWidth={2.4} /> Yeni Rezervasyon
@@ -31,11 +41,11 @@ export function Dashboard() {
         {data && (
           <>
             <div className="grid grid-4">
-              <Stat icon="calendar" label="Bugünkü organizasyon" value={String(data.today.length)} />
-              <Stat icon="clock" label="Önümüzdeki 7 gün" value={String(data.weekCount)} />
-              <Stat icon="wallet" label="Bu ay alınan ödeme" value={tl(data.monthCollected, true)} />
-              <Stat icon="alert" label="Geciken ödemeler" value={tl(data.overdueTotal, true)}
-                tone={data.overdueTotal > 0 ? "danger" : undefined} />
+              <StatCard icon="calendar" tone="wine" label="Bugünkü organizasyon" value={String(data.today.length)} />
+              <StatCard icon="clock" tone="plum" label="Önümüzdeki 7 gün" value={String(data.weekCount)} />
+              <StatCard icon="wallet" tone="gold" label="Bu ay alınan ödeme" value={tl(data.monthCollected, true)} />
+              <StatCard icon={data.overdueTotal > 0 ? "alert" : "check"} tone={data.overdueTotal > 0 ? "danger" : "green"}
+                label="Geciken ödemeler" value={tl(data.overdueTotal, true)} />
             </div>
 
             <div className="split">
@@ -48,7 +58,7 @@ export function Dashboard() {
                     </div>
                   </div>
                   {data.today.length === 0 ? <Empty icon="calendar">Bugün organizasyon yok.</Empty> : (
-                    <div className="list">{data.today.map((r) => <ReservationRow key={r.id} r={r} extra="remaining" />)}</div>
+                    <div className="list today-list">{data.today.map((r) => <ReservationRow key={r.id} r={r} extra="remaining" />)}</div>
                   )}
                 </div>
                 <div className="card">
@@ -96,7 +106,7 @@ export function Dashboard() {
                       {data.options.map((r) => (
                         <div key={r.id}>
                           <ReservationRow r={r} extra="option" />
-                          <div className="small" style={{ color: r.optionExpired ? "var(--danger)" : "var(--warning)", padding: "0 6px 10px 84px", marginTop: -6 }}>
+                          <div className="small" style={{ color: r.optionExpired ? "var(--danger)" : "var(--warning)", padding: "0 10px 10px 88px", marginTop: -6 }}>
                             Son gün: {r.optionUntil ? relativeDay(r.optionUntil) : "—"}
                           </div>
                         </div>
@@ -105,23 +115,13 @@ export function Dashboard() {
                   </div>
                 )}
 
-                <div className="card" style={{ background: "var(--gold-soft)", borderColor: "#ebddbe" }}>
-                  <div className="card-title" style={{ marginBottom: 12 }}>Hızlı işlemler</div>
-                  <div className="stack" style={{ gap: 10 }}>
-                    <button className="btn btn-block" style={{ justifyContent: "flex-start" }} onClick={() => navigate({ name: "calendar" })}>
-                      <Icon name="calendar" /> Boş günlere bak
-                    </button>
-                    <button className="btn btn-block" style={{ justifyContent: "flex-start" }} onClick={() => navigate({ name: "payments" })}>
-                      <Icon name="wallet" /> Ödeme al
-                    </button>
-                    <button className="btn btn-block" style={{ justifyContent: "flex-start" }} onClick={() => navigate({ name: "customers" })}>
-                      <Icon name="search" /> Müşteri ara
-                    </button>
-                    {isAdmin && (
-                      <button className="btn btn-block" style={{ justifyContent: "flex-start" }} onClick={() => navigate({ name: "reports" })}>
-                        <Icon name="chart" /> Raporlar
-                      </button>
-                    )}
+                <div className="card quick">
+                  <div className="card-title" style={{ marginBottom: 14 }}>Hızlı işlemler</div>
+                  <div className="quick-grid">
+                    <QuickButton icon="calendar" tone="wine" label="Boş günlere bak" onClick={() => navigate({ name: "calendar" })} />
+                    <QuickButton icon="wallet" tone="gold" label="Ödeme al" onClick={() => navigate({ name: "payments" })} />
+                    <QuickButton icon="search" tone="plum" label="Müşteri ara" onClick={() => navigate({ name: "customers" })} />
+                    {isAdmin && <QuickButton icon="chart" tone="green" label="Raporlar" onClick={() => navigate({ name: "reports" })} />}
                   </div>
                 </div>
               </div>
@@ -133,13 +133,11 @@ export function Dashboard() {
   );
 }
 
-function Stat({ icon, label, value, tone }: { icon: IconName; label: string; value: string; tone?: "danger" }) {
+function QuickButton({ icon, tone, label, onClick }: { icon: IconName; tone: Tone; label: string; onClick: () => void }) {
   return (
-    <div className="card stat">
-      <div className="stat-label" style={tone ? { color: "var(--danger)" } : undefined}>
-        <Icon name={icon} size={19} /> {label}
-      </div>
-      <div className="big-number" style={tone ? { color: "var(--danger)" } : undefined}>{value}</div>
-    </div>
+    <button className={`quick-btn tone-${tone}`} onClick={onClick}>
+      <span className="qi"><Icon name={icon} size={20} /></span>
+      {label}
+    </button>
   );
 }

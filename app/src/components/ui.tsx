@@ -127,6 +127,22 @@ export function StatusBadge({ r }: { r: Pick<ReservationSummary, "status" | "opt
   return <span className={`badge badge-${kind}`}>{statusLabel(r.status, r.optionExpired)}</span>;
 }
 
+/** Renkli simgeli bilgi kartı (ana sayfa, ödemeler, raporlar). */
+export type Tone = "wine" | "gold" | "plum" | "green" | "danger";
+
+export function StatCard({ icon, label, value, tone, sub, valueColor }: {
+  icon: IconName; label: string; value: string; tone: Tone; sub?: ReactNode; valueColor?: string;
+}) {
+  return (
+    <div className={`card stat rise tone-${tone}`}>
+      <div className="stat-icon"><Icon name={icon} size={24} /></div>
+      <div className="stat-label">{label}</div>
+      <div className="big-number" style={valueColor ? { color: valueColor } : undefined}>{value}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
+    </div>
+  );
+}
+
 export function DateBox({ date }: { date: string }) {
   const d = parseDate(date);
   return (
@@ -135,6 +151,13 @@ export function DateBox({ date }: { date: string }) {
       <span className="mon">{monthShort(d.getMonth() + 1)}</span>
     </div>
   );
+}
+
+/** Ada göre sabit bir renk (0–4): müşteri listesinde baş harf yuvarlakları renkli görünsün. */
+export function hue(name: string) {
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 5;
 }
 
 export function initials(name: string) {

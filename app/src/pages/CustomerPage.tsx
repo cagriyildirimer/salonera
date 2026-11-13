@@ -33,23 +33,31 @@ export function CustomerPage({ id }: { id: string }) {
   return (
     <div className="content">
       <div className="content-wide stack">
-        <div className="card">
+        <div className="card res-card">
+          <div className="res-banner">
           <div className="row" style={{ gap: 20 }}>
-            <div className="avatar" style={{ width: 72, height: 72, fontSize: 26, background: "var(--primary-soft)", color: "var(--primary)" }}>
-              {initials(c.fullName)}
-            </div>
+            <div className="avatar avatar-xl">{initials(c.fullName)}</div>
             <div style={{ flex: 1 }}>
-              <h2 style={{ fontSize: 26, fontWeight: 600 }}>{c.fullName}</h2>
+              <h2 className="display" style={{ fontSize: 38, fontWeight: 700, lineHeight: 1.1 }}>{c.fullName}</h2>
               <div className="row" style={{ gap: 18, marginTop: 4, fontSize: 17 }}>
                 <a href={telHref(c.phone)} className="row" style={{ gap: 6 }}><Icon name="phone" size={17} /> {c.phone}</a>
                 {c.phone2 && <a href={telHref(c.phone2)}>{c.phone2}</a>}
                 {(c.brideName || c.groomName) && <span className="muted"><Icon name="heart" size={16} /> {[c.brideName, c.groomName].filter(Boolean).join(" & ")}</span>}
               </div>
             </div>
-            <button className="btn" onClick={() => setEditing(true)}><Icon name="edit" /> Düzenle</button>
-            <button className="btn btn-primary" onClick={() => navigate({ name: "new", customerId: id })}><Icon name="plus" /> Yeni Rezervasyon</button>
+            <div className="profile-stats">
+              <div><b>{data.reservations.length}</b><span>kayıt</span></div>
+              <div><b>{remaining > 0 ? tl(remaining, true) : "—"}</b><span>kalan borç</span></div>
+            </div>
           </div>
-          {c.notes && <div style={{ marginTop: 16, whiteSpace: "pre-wrap" }} className="alert alert-info">{c.notes}</div>}
+          </div>
+          <div className="res-body">
+            <div className="row">
+              <button className="btn btn-primary" onClick={() => navigate({ name: "new", customerId: id })}><Icon name="plus" /> Yeni Rezervasyon</button>
+              <button className="btn" onClick={() => setEditing(true)}><Icon name="edit" /> Düzenle</button>
+            </div>
+            {c.notes && <div style={{ marginTop: 16, whiteSpace: "pre-wrap" }} className="alert alert-info">{c.notes}</div>}
+          </div>
         </div>
 
         <div className="card">

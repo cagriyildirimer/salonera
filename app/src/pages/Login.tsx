@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { Icon } from "../components/Icon";
+import { BrandMark, Flourish, Rings } from "../components/Ornament";
 import { Alert, errorText, initials } from "../components/ui";
 import type { LoginUserOption, ServerInfo, User } from "../types";
 
@@ -8,13 +9,14 @@ export function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <div className="auth">
       <div className="auth-art">
+        <Rings size={360} className="auth-rings" />
         <div className="row" style={{ gap: 14 }}>
-          <div className="brand-mark" style={{ width: 52, height: 52 }}><Icon name="heart" size={22} /></div>
-          <span className="serif" style={{ fontSize: 30 }}>Salonera</span>
+          <BrandMark size={58} />
+          <span className="display" style={{ fontSize: 38, fontWeight: 700, letterSpacing: ".02em" }}>Salonera</span>
         </div>
         <div>
-          <div className="rule" />
-          <h1>Mutlu günleri birlikte planlayalım.</h1>
+          <Flourish width={180} />
+          <h1 style={{ marginTop: 22 }}>Mutlu günleri <em className="gold-text">birlikte</em> planlayalım.</h1>
           <p>Rezervasyonlar, müşteriler, sözleşmeler ve ödemeler tek bir yerde.</p>
         </div>
         <span style={{ color: "#b897a3", fontSize: 14 }}>Düğün salonları ve organizasyon işletmeleri için</span>

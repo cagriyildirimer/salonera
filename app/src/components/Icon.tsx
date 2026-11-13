@@ -39,6 +39,9 @@ const paths: Record<string, string> = {
   music: "M9 18V5l12-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
   list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   hourglass: "M6 2h12M6 22h12M7 2v4a5 5 0 0 0 10 0V2M7 22v-4a5 5 0 0 1 10 0v4",
+  up: "M18 15l-6-6-6 6",
+  down: "M6 9l6 6 6-6",
+  utensils: "M3 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6a2 2 0 0 0 2 2h3zM21 15v7",
 };
 
 export type IconName = keyof typeof paths;

@@ -5,7 +5,8 @@ import { Icon } from "../components/Icon";
 import { LoadError, Loading, useLoad } from "../components/ui";
 import { dateLong, dateTime, dateWithDay, kindLabels, methodLabels, tl, today } from "../format";
 import type { BusinessSettings, Customer, Payment, Program, ReservationDetail } from "../types";
-import { breakdownText } from "../pricing";
+import { groupDishes } from "../menu";
+import { breakdownText, extraBreakdown, extraLabel } from "../pricing";
 import { moneyWords } from "../words";
 
 const paper: CSSProperties = {
@@ -14,12 +15,12 @@ const paper: CSSProperties = {
 };
 
 /** Yazdırılacak sözleşme veya makbuz. Üstteki çubuk yazıcıya çıkmaz. */
-export function PrintPage({ kind, id }: { kind: "contract" | "receipt" | "program"; id: string }) {
+export function PrintPage({ kind, id }: { kind: "contract" | "receipt" | "program" | "menu"; id: string }) {
   const { back } = useSession();
   const data = useLoad(async () => {
     const settings = await api.settings();
-    if (kind === "contract" || kind === "program") {
-      const [detail, program] = await Promise.all([api.reservation(id), kind === "program" ? api.program(id) : null]);
+    if (kind !== "receipt") {
+      const [detail, program] = await Promise.all([api.reservation(id), kind === "contract" ? null : api.program(id)]);
       const customer = (await api.customer(detail.summary.customerId)).customer;
       return { settings, detail, customer, payment: null as Payment | null, program };
     }
@@ -33,7 +34,7 @@ export function PrintPage({ kind, id }: { kind: "contract" | "receipt" | "progra
     <div className="print-shell" style={{ height: "100%", overflow: "auto", background: "#e9e2db" }}>
       <div className="no-print" style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--sidebar)", padding: "12px 24px", display: "flex", gap: 12, alignItems: "center" }}>
         <button className="btn" onClick={back}><Icon name="back" size={18} /> Geri</button>
-        <span style={{ color: "#fff", fontSize: 18, fontWeight: 600, flex: 1 }}>{{ contract: "Sözleşme", receipt: "Makbuz", program: "Organizasyon planı" }[kind]}</span>
+        <span style={{ color: "#fff", fontSize: 18, fontWeight: 600, flex: 1 }}>{{ contract: "Sözleşme", receipt: "Makbuz", program: "Organizasyon planı", menu: "Mutfak çıktısı (yemek menüsü)" }[kind]}</span>
         <span style={{ color: "#c9aeb8" }}>PDF olarak kaydetmek için yazıcı olarak “Microsoft Print to PDF” seçin.</span>
         <button className="btn btn-gold" disabled={!data.data} onClick={() => window.print()}><Icon name="printer" /> Yazdır</button>
       </div>
@@ -41,7 +42,9 @@ export function PrintPage({ kind, id }: { kind: "contract" | "receipt" | "progra
         {data.error && <div style={{ maxWidth: 800, margin: "0 auto" }}><LoadError message={data.error} onRetry={data.reload} /></div>}
         {!data.data ? !data.error && <Loading /> : (
           <div style={paper} className="paper">
-            {kind === "program"
+            {kind === "menu"
+              ? <MenuSheet settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} program={data.data.program!} />
+              : kind === "program"
               ? <ProgramSheet settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} program={data.data.program!} />
               : kind === "contract"
               ? <Contract settings={data.data.settings} detail={data.data.detail} customer={data.data.customer} />
@@ -106,7 +109,7 @@ function Signatures({ left, right }: { left: string; right: string }) {
 
 function Contract({ settings, detail, customer }: { settings: BusinessSettings; detail: ReservationDetail; customer: Customer }) {
   const r = detail.summary;
-  const gross = detail.packagePrice + detail.extras.reduce((s, e) => s + e.price, 0);
+  const gross = detail.packagePrice + detail.menuPrice + detail.extras.reduce((s, e) => s + e.price, 0);
   return (
     <>
       <Letterhead settings={settings} title="ORGANİZASYON SÖZLEŞMESİ" no={r.no} date={dateLong(detail.confirmedAt?.slice(0, 10) ?? today())} />
@@ -136,13 +139,36 @@ function Contract({ settings, detail, customer }: { settings: BusinessSettings; 
             </td>
             <td style={num}>{tl(detail.packagePrice)}</td>
           </tr>
-          {detail.extras.map((e) => <tr key={e.name}><td style={cell}>{e.name}</td><td style={num}>{tl(e.price)}</td></tr>)}
+          {detail.menuPrice > 0 && (
+            <tr>
+              <td style={cell}>
+                Menü farkı: {detail.menuName}
+                <div style={{ fontSize: "9pt", color: "#5a4a50" }}>{Math.round(detail.menuPrice / detail.menuPerGuest)} kişi × {tl(detail.menuPerGuest, true)}</div>
+              </td>
+              <td style={num}>{tl(detail.menuPrice)}</td>
+            </tr>
+          )}
+          {detail.extras.map((e) => (
+            <tr key={e.name}>
+              <td style={cell}>
+                {extraLabel(e)}
+                {extraBreakdown(e) && <div style={{ fontSize: "9pt", color: "#5a4a50" }}>{extraBreakdown(e)}</div>}
+              </td>
+              <td style={num}>{tl(e.price)}</td>
+            </tr>
+          ))}
           {detail.discount > 0 && <tr><td style={cell}>Ara toplam</td><td style={num}>{tl(gross)}</td></tr>}
           {detail.discount > 0 && <tr><td style={cell}>İndirim</td><td style={num}>− {tl(detail.discount)}</td></tr>}
           <tr style={{ background: "#f8efdc" }}><td style={{ ...cell, fontWeight: 700 }}>TOPLAM (KDV dahil)</td><td style={{ ...num, fontWeight: 700, fontSize: "12pt" }}>{tl(r.total)}</td></tr>
         </tbody>
       </table>
       <div style={{ fontSize: "9pt", color: "#5a4a50", marginTop: 4 }}>Yazıyla: {moneyWords(r.total)}</div>
+      {detail.menuItems.length > 0 && (
+        <>
+          <div style={h3}>Yemek menüsü{detail.menuName ? ` — ${detail.menuName}` : ""}</div>
+          <CompactMenu detail={detail} />
+        </>
+      )}
       <div style={h3}>Ödeme planı</div>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead><tr style={{ background: "#f6f0e9" }}><th style={{ ...cell, textAlign: "left" }}>Ödeme</th><th style={{ ...cell, textAlign: "left" }}>Son ödeme günü</th><th style={num}>Tutar</th><th style={num}>Durum</th></tr></thead>
@@ -183,6 +209,7 @@ function ProgramSheet({ settings, detail, customer, program }: { settings: Busin
         ["Türü", kindLabels[r.kind]],
         ["Davetli sayısı", `${r.guestCount} kişi`],
         ...(detail.packageName ? [["Paket", detail.packageName] as [string, string]] : []),
+        ...(detail.menuName ? [["Menü", detail.menuName] as [string, string]] : []),
       ]} />
 
       <div style={h3}>Saatlik akış</div>
@@ -217,6 +244,13 @@ function ProgramSheet({ settings, detail, customer, program }: { settings: Busin
         </table>
       )}
 
+      {detail.menuItems.length > 0 && (
+        <>
+          <div style={h3}>Yemek menüsü</div>
+          <CompactMenu detail={detail} />
+        </>
+      )}
+
       {(program.notes || detail.notes) && (
         <>
           <div style={h3}>Notlar</div>
@@ -225,6 +259,81 @@ function ProgramSheet({ settings, detail, customer, program }: { settings: Busin
         </>
       )}
       <Signatures left="Müşteri onayı" right={settings.businessName} />
+    </>
+  );
+}
+
+/** Sözleşme ve plan için tek satırlık bölümler: "Çorba: Mercimek · Ana yemek: Kuzu tandır, Pilav". */
+function CompactMenu({ detail }: { detail: ReservationDetail }) {
+  return (
+    <div style={{ fontSize: "9.5pt" }}>
+      {groupDishes(detail.menuItems).map((g) => (
+        <div key={g.course}><b>{g.course}:</b> {g.dishes.map((d) => d.name).join(", ")}</div>
+      ))}
+      {detail.menuNotes && <div style={{ marginTop: 4, color: "#5a4a50" }}>Not: {detail.menuNotes}</div>}
+    </div>
+  );
+}
+
+/** Mutfak ve servis için: davetli sayısı, yemekler, mutfak notları ve saatlik akış. */
+function MenuSheet({ settings, detail, customer, program }: { settings: BusinessSettings; detail: ReservationDetail; customer: Customer; program: Program }) {
+  const r = detail.summary;
+  const groups = groupDishes(detail.menuItems);
+  const row: CSSProperties = { ...cell, padding: "3px 8px" };
+  return (
+    <>
+      <Letterhead settings={settings} title="YEMEK MENÜSÜ" no={r.no} date={dateLong(r.date)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 24, alignItems: "center", margin: "14px 0 4px" }}>
+        <InfoGrid rows={[
+          ["Müşteri", customer.fullName],
+          ["Tarih", dateWithDay(r.date)],
+          ["Saat", `${r.start} – ${r.end}`],
+          ["Salon", r.hallName],
+          ["Türü", kindLabels[r.kind]],
+          ["Menü", detail.menuName ?? "Düğüne özel"],
+        ]} />
+        <div style={{ textAlign: "center", border: "2px solid #8a2846", borderRadius: 10, padding: "8px 18px" }}>
+          <div style={{ fontSize: "26pt", fontWeight: 700, color: "#8a2846", lineHeight: 1.1 }}>{r.guestCount}</div>
+          <div style={{ fontSize: "9pt", fontWeight: 600 }}>DAVETLİ</div>
+        </div>
+      </div>
+
+      <div style={h3}>Yemekler</div>
+      {groups.length === 0 ? <div style={{ color: "#7a6a6f" }}>Menü henüz belirlenmedi.</div> : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 28px" }}>
+          {groups.map((g) => (
+            <div key={g.course} style={{ breakInside: "avoid" }}>
+              <div style={{ fontWeight: 700, color: "#8a2846", borderBottom: "1px solid #eadfd6", paddingBottom: 2, marginBottom: 4 }}>{g.course}</div>
+              {g.dishes.map((d) => <div key={d.index} style={{ fontSize: "11pt", padding: "1px 0" }}>☐ {d.name}</div>)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {detail.menuNotes && (
+        <>
+          <div style={h3}>Mutfağa notlar</div>
+          <div style={{ whiteSpace: "pre-wrap", fontSize: "11pt", fontWeight: 600, background: "#f8efdc", padding: "8px 12px", borderRadius: 6 }}>{detail.menuNotes}</div>
+        </>
+      )}
+
+      {program.items.length > 0 && (
+        <>
+          <div style={h3}>Saatlik akış</div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <tbody>
+              {program.items.map((it, i) => (
+                <tr key={i} style={{ breakInside: "avoid" }}>
+                  <td style={{ ...row, width: "16mm", fontWeight: 700, color: "#8a2846" }}>{it.time}</td>
+                  <td style={{ ...row, fontWeight: 600 }}>{it.title}</td>
+                  <td style={{ ...row, color: "#5a4a50" }}>{it.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {detail.notes && (<><div style={h3}>Rezervasyon notu</div><div style={{ whiteSpace: "pre-wrap" }}>{detail.notes}</div></>)}
     </>
   );
 }

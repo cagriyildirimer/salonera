@@ -73,6 +73,9 @@ export const api = {
   extras: (all = false) => get<T.Product[]>(`/api/extras${all ? "?all=true" : ""}`),
   saveExtra: (id: string | null, body: Omit<T.Product, "id">) =>
     id ? put<string>(`/api/extras/${id}`, body) : post<string>("/api/extras", body),
+  menus: (all = false) => get<T.Menu[]>(`/api/menus${all ? "?all=true" : ""}`),
+  saveMenu: (id: string | null, body: Omit<T.Menu, "id">) =>
+    id ? put<string>(`/api/menus/${id}`, body) : post<string>("/api/menus", body),
   users: () => get<T.User[]>("/api/users"),
   saveUser: (id: string | null, body: Omit<T.User, "id"> & { password?: string }) =>
     id ? put<T.User>(`/api/users/${id}`, body) : post<T.User>("/api/users", body),
@@ -97,6 +100,10 @@ export const api = {
   extend: (id: string, days: number) => post<null>(`/api/reservations/${id}/extend`, { days }),
   cancel: (id: string, reason: string) => post<null>(`/api/reservations/${id}/cancel`, { reason }),
   setPlan: (id: string, plan: T.InstallmentInput[]) => put<null>(`/api/reservations/${id}/plan`, { plan }),
+  selectMenu: (id: string, menuId: string | null) => post<null>(`/api/reservations/${id}/menu/select`, { menuId }),
+  changeExtras: (id: string, extraIds: string[]) => put<null>(`/api/reservations/${id}/extras`, { extraIds }),
+  saveReservationMenu: (id: string, body: { items: T.MenuDish[]; notes: string | null }) =>
+    put<null>(`/api/reservations/${id}/menu`, body),
   program: (id: string) => get<T.Program>(`/api/reservations/${id}/program`),
   saveProgram: (id: string, body: T.Program) => put<T.Program>(`/api/reservations/${id}/program`, body),
   takePayment: (id: string, body: T.PaymentInput) => post<string>(`/api/reservations/${id}/payments`, body),
@@ -111,6 +118,13 @@ export const api = {
   yearReport: (year: number) => get<T.YearReport>(`/api/reports/year?year=${year}`),
   receivables: () => get<T.ReservationSummary[]>("/api/reports/receivables"),
   hallUsage: (from: string, to: string) => get<T.HallUsageRow[]>(`/api/reports/halls?from=${from}&to=${to}`),
+  salesReport: (from: string, to: string) => get<T.SalesRow[]>(`/api/reports/sales?from=${from}&to=${to}`),
+  dueReport: () => get<T.DueRow[]>("/api/reports/due"),
   backups: () => get<T.BackupInfo[]>("/api/backups"),
   createBackup: () => post<T.BackupInfo>("/api/backups"),
+  calendarSync: () => get<T.CalendarSyncStatus>("/api/calendar-sync"),
+  connectCalendar: (provider: T.CalendarProvider) => post<{ authUrl: string }>("/api/calendar-sync/connect", { provider }),
+  cancelCalendarConnect: () => post<null>("/api/calendar-sync/cancel"),
+  syncCalendarNow: () => post<null>("/api/calendar-sync/now"),
+  disconnectCalendar: (id: string) => del<null>(`/api/calendar-sync/accounts/${q(id)}`),
 };

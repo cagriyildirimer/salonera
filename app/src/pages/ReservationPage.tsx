@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "../App";
 import { api } from "../api";
 import { Icon } from "../components/Icon";
-import { emptySale, PackagePicker, PaymentPlanner, saleTotals, toSaleInput, type SaleState } from "../components/SaleEditor";
+import { MenuView } from "../components/MenuEditor";
+import { emptySale, PackagePicker, PaymentPlanner, saleTotals, toSaleInput, TotalBar, type SaleState } from "../components/SaleEditor";
 import {
   Alert, DateBox, errorText, Field, LoadError, Loading, Modal, MoneyInput, NumberInput, StatusBadge, TimeSelect,
   useAction, useFeedback, useLoad,
@@ -11,7 +12,7 @@ import {
   dateLong, dateTime, dateWithDay, installmentLabels, kindLabels, methodLabels, relativeDay, telHref, tl, today,
 } from "../format";
 import { suggestDeposit } from "../plan";
-import { billedGuests, breakdownText, packageTotal, tariffText } from "../pricing";
+import { breakdownText, extraBreakdown, extraLabel, menuTariffText, menuTotal, packageTotal, tariffText } from "../pricing";
 import type { EventKind, HallAvailability, InstallmentInput, Method, ReservationDetail } from "../types";
 
 export function ReservationPage({ id }: { id: string }) {
@@ -87,7 +88,8 @@ export function ReservationPage({ id }: { id: string }) {
         )}
 
         {/* Başlık */}
-        <div className="card">
+        <div className="card res-card">
+          <div className="res-banner">
           <div className="res-head">
             <DateBox date={r.date} />
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -104,6 +106,8 @@ export function ReservationPage({ id }: { id: string }) {
               </div>
             </div>
           </div>
+          </div>
+          <div className="res-body">
 
           {isOption && (
             <div style={{ marginTop: 18 }}>
@@ -140,17 +144,18 @@ export function ReservationPage({ id }: { id: string }) {
             {r.paid > 0 && <button className="btn" onClick={() => setModal("refund")}><Icon name="undo" /> İade yap</button>}
             {!isCancelled && <button className="btn btn-danger" disabled={busy} onClick={cancelReservation}><Icon name="x" /> İptal et</button>}
           </div>
+          </div>
         </div>
 
         {(isConfirmed || r.paid > 0) && (
           <div className="split">
             <div className="stack">
               {/* Para durumu */}
-              <div className="card">
+              <div className="card money-card">
                 <div className="grid grid-3">
-                  <div><div className="muted">Toplam</div><div className="big-number">{tl(r.total, true)}</div></div>
-                  <div><div className="muted">Ödenen</div><div className="big-number" style={{ color: "var(--success)" }}>{tl(r.paid, true)}</div></div>
-                  <div><div className="muted">Kalan</div><div className="big-number" style={{ color: r.remaining ? "var(--primary)" : "var(--success)" }}>{tl(r.remaining, true)}</div></div>
+                  <div className="money-cell"><div className="k">Toplam</div><div className="big-number">{tl(r.total, true)}</div></div>
+                  <div className="money-cell"><div className="k">Ödenen</div><div className="big-number" style={{ color: "var(--success)" }}>{tl(r.paid, true)}</div></div>
+                  <div className="money-cell"><div className="k">Kalan</div><div className="big-number" style={{ color: r.remaining ? "var(--primary)" : "var(--success)" }}>{tl(r.remaining, true)}</div></div>
                 </div>
                 <div className="money-bar"><div style={{ width: `${percent}%` }} /></div>
                 <div className="muted small">Ödemenin %{percent}'i tamamlandı{r.overdue > 0 && <b style={{ color: "var(--danger)" }}> · {tl(r.overdue)} gecikmiş</b>}</div>
@@ -205,9 +210,10 @@ export function ReservationPage({ id }: { id: string }) {
                     <div><div className="card-title">Ödeme planı</div><div className="card-sub">Ödemeler sırayla taksitlere düşülür</div></div>
                     <button className="btn btn-ghost" onClick={() => setModal("plan")}><Icon name="edit" size={18} /> Değiştir</button>
                   </div>
-                  <div className="list">
+                  <div className="timeline">
                     {data.installments.map((i) => (
-                      <div key={i.id} className="list-item" style={{ cursor: "default" }}>
+                      <div key={i.id} className={`tl-item tl-${i.state}`}>
+                        <span className="tl-dot">{i.state === "odendi" && <Icon name="check" size={14} strokeWidth={3} />}</span>
                         <div style={{ flex: 1 }}>
                           <div className="strong">{i.label}</div>
                           <div className="item-sub">{dateLong(i.dueDate)}{i.paid > 0 && i.paid < i.amount ? ` · ${tl(i.paid)} ödendi` : ""}</div>
@@ -226,19 +232,68 @@ export function ReservationPage({ id }: { id: string }) {
 
               {/* Satış ayrıntısı */}
               {data.packageName && (
-                <div className="card">
+                <div className="card receipt">
                   <div className="card-title" style={{ marginBottom: 10 }}>Paket ve fiyat</div>
                   <div className="price-line"><span>{data.packageName}</span><span>{tl(data.packagePrice)}</span></div>
                   {breakdownText(data.packagePricing, data.packagePrice) && (
                     <div className="muted small" style={{ marginTop: -4, marginBottom: 6 }}>{breakdownText(data.packagePricing, data.packagePrice)}</div>
                   )}
-                  {data.extras.map((e) => <div key={e.name} className="price-line"><span>{e.name}</span><span>{tl(e.price)}</span></div>)}
+                  {data.menuPrice > 0 && (
+                    <>
+                      <div className="price-line"><span>Menü farkı ({data.menuName})</span><span>{tl(data.menuPrice)}</span></div>
+                      <div className="muted small" style={{ marginTop: -4, marginBottom: 6 }}>
+                        {Math.round(data.menuPrice / data.menuPerGuest)} kişi × {tl(data.menuPerGuest, true)}
+                      </div>
+                    </>
+                  )}
+                  {data.extras.map((e) => (
+                    <div key={e.name}>
+                      <div className="price-line"><span>{extraLabel(e)}</span><span>{tl(e.price)}</span></div>
+                      {extraBreakdown(e) && <div className="muted small" style={{ marginTop: -4, marginBottom: 6 }}>{extraBreakdown(e)}</div>}
+                    </div>
+                  ))}
                   {data.discount > 0 && <div className="price-line"><span className="k">İndirim</span><span style={{ color: "var(--success)" }}>− {tl(data.discount)}</span></div>}
-                  <div className="hr" style={{ margin: "8px 0" }} />
-                  <div className="price-line strong"><span>Toplam</span><span>{tl(r.total)}</span></div>
+                  <div className="total-box" style={{ marginTop: 12 }}><span className="strong">Toplam</span><span className="v">{tl(r.total)}</span></div>
+                  {isConfirmed && (
+                    <button className="btn btn-ghost" style={{ marginTop: 8, paddingLeft: 0 }} onClick={() => navigate({ name: "menu", id })}>
+                      <Icon name="edit" size={18} /> Menü, pasta ve seçenekleri değiştir
+                    </button>
+                  )}
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Yemek menüsü */}
+        {isConfirmed && (
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <div className="card-title"><Icon name="utensils" size={20} /> Yemek menüsü</div>
+                <div className="card-sub">
+                  {data.menuName
+                    ? <>{data.menuName} · {menuTariffText(data.menuPerGuest)}</>
+                    : data.menuItems.length > 0 ? "Bu düğüne özel menü" : "Menü henüz seçilmedi"}
+                </div>
+              </div>
+              <div className="row" style={{ gap: 8 }}>
+                {data.menuItems.length > 0 && (
+                  <button className="btn btn-ghost" onClick={() => navigate({ name: "print", kind: "menu", id })}><Icon name="printer" size={18} /> Mutfak çıktısı</button>
+                )}
+                <button className="btn btn-ghost" onClick={() => navigate({ name: "menu", id })}>
+                  <Icon name="edit" size={18} /> {data.menuName || data.menuItems.length ? "Düzenle" : "Menü seç"}
+                </button>
+              </div>
+            </div>
+            {data.menuItems.length === 0 ? (
+              <div className="muted">Müşterinin yemek menüsünü buradan seçebilir, çorbadan tatlıya düğüne özel değiştirebilirsiniz.</div>
+            ) : (
+              <>
+                <MenuView items={data.menuItems} columns={3} />
+                {data.menuNotes && <div style={{ whiteSpace: "pre-wrap", marginTop: 12 }}><b>Mutfağa not:</b> {data.menuNotes}</div>}
+              </>
+            )}
           </div>
         )}
 
@@ -260,18 +315,18 @@ export function ReservationPage({ id }: { id: string }) {
             <div className="muted">Henüz plan yok. Yemek, pasta, takı töreni saatlerini ve giriş / ilk dans müziklerini buradan planlayabilirsiniz.</div>
           ) : program.data && (
             <div className="grid grid-2" style={{ alignItems: "start" }}>
-              <div className="list">
+              <div className="flow">
                 {program.data.items.map((it, i) => (
-                  <div key={i} className="list-item" style={{ cursor: "default", padding: "8px 4px" }}>
-                    <span className="strong" style={{ width: 56, color: "var(--primary)" }}>{it.time}</span>
-                    <span style={{ flex: 1 }}>{it.title}</span>
+                  <div key={i} className="flow-item">
+                    <span className="flow-time">{it.time}</span>
+                    <span style={{ flex: 1 }}>{it.title}{it.note && <span className="muted small"> · {it.note}</span>}</span>
                   </div>
                 ))}
               </div>
               <div className="list">
                 {program.data.music.map((m, i) => (
-                  <div key={i} className="list-item" style={{ cursor: "default", padding: "8px 4px" }}>
-                    <Icon name="music" size={18} />
+                  <div key={i} className="music-item">
+                    <span className="music-icon"><Icon name="music" size={18} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="strong">{m.label}</div>
                       <div className="item-sub" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.song ?? m.link}</div>
@@ -414,13 +469,17 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void check(); }, []);
 
-  // Kesin kayıtta kişi başı fiyatlı paket varsa, davetli sayısı değişince yeni fiyatı gösterip sorar.
+  // Kesin kayıtta kişi başı fiyatlı paket veya farklı menü varsa, davetli sayısı değişince yeni fiyatı gösterip sorar.
   // Hesap satış anındaki fiyatlarla yapılır (sunucudaki reprice ile aynı).
   const pricing = detail.packagePricing;
-  const newPackagePrice = packageTotal(pricing, guests);
-  const priceChange = r.status === "kesin" && pricing.perGuestPrice > 0 && guests > 0 && guests !== r.guestCount
-    && newPackagePrice !== detail.packagePrice
-    ? { newTotal: r.total + newPackagePrice - detail.packagePrice, billed: billedGuests(pricing, guests) }
+  const newPackagePrice = pricing.perGuestPrice > 0 ? packageTotal(pricing, guests) : detail.packagePrice;
+  const newMenuPrice = menuTotal(detail.menuPerGuest, guests, pricing.minGuests);
+  // Kişi başı fiyatlı ek hizmetler (ör. kişi başı pasta) da yeni davetliyle hesaplanır.
+  const extrasDelta = detail.extras.reduce((sum, e) =>
+    sum + (e.perGuest > 0 ? e.basePrice + menuTotal(e.perGuest, guests, pricing.minGuests) - e.price : 0), 0);
+  const delta = newPackagePrice - detail.packagePrice + newMenuPrice - detail.menuPrice + extrasDelta;
+  const priceChange = r.status === "kesin" && guests > 0 && guests !== r.guestCount && delta !== 0
+    ? { newTotal: r.total + delta, billed: Math.max(guests, pricing.minGuests) }
     : null;
   const willReprice = !!priceChange && reprice;
 
@@ -462,7 +521,7 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
         </div>
         {priceChange && (
           <div className="card" style={{ background: "var(--primary-soft)", boxShadow: "none" }}>
-            <div className="strong">Davetli sayısı değişti, paket fiyatı da değişiyor</div>
+            <div className="strong">Davetli sayısı değişti, fiyat da değişiyor</div>
             <div className="price-line" style={{ marginTop: 8 }}>
               <span className="k">Şimdiki toplam ({r.guestCount} davetli)</span><span>{tl(r.total)}</span>
             </div>
@@ -470,7 +529,11 @@ function EditModal({ detail, onClose, onDone }: { detail: ReservationDetail; onC
               <span>Yeni toplam ({guests} davetli{priceChange.billed > guests ? `, ${priceChange.billed} kişi üzerinden` : ""})</span>
               <span>{tl(priceChange.newTotal)}</span>
             </div>
-            <div className="muted small" style={{ marginBottom: 10 }}>{tariffText(pricing)} · sözleşmedeki fiyatlarla</div>
+            <div className="muted small" style={{ marginBottom: 10 }}>
+              {pricing.perGuestPrice > 0 && <>Paket: {tariffText(pricing)} · </>}
+              {detail.menuPerGuest > 0 && <>Menü: {menuTariffText(detail.menuPerGuest)} · </>}
+              sözleşmedeki fiyatlarla
+            </div>
             <label className="checkbox">
               <input type="checkbox" checked={reprice} onChange={(e) => setReprice(e.target.checked)} />
               <span><b>Fiyatı ve ödeme planını güncelle</b><br />
@@ -567,14 +630,17 @@ function ExtendModal({ detail, onClose, onDone }: { detail: ReservationDetail; o
 
 // ---------------- Ön rezervasyonu kesinleştir ----------------
 function ConvertOption({ detail, onDone, onCancel }: { detail: ReservationDetail; onDone: () => void; onCancel: () => void }) {
-  const catalog = useLoad(async () => ({ packages: await api.packages(), extras: await api.extras() }));
+  const catalog = useLoad(async () => {
+    const [packages, extras, menus] = await Promise.all([api.packages(), api.extras(), api.menus()]);
+    return { packages, extras, menus };
+  });
   const [sale, setSale] = useState<SaleState>(emptySale());
   const [step, setStep] = useState<"package" | "payment">("package");
   const { run, busy } = useAction();
   const { navigate } = useSession();
   if (!catalog.data) return <div className="content"><Loading /></div>;
   const r = detail.summary;
-  const { total } = saleTotals(sale, catalog.data.packages, catalog.data.extras, r.guestCount);
+  const { total } = saleTotals(sale, catalog.data.packages, catalog.data.extras, r.guestCount, catalog.data.menus);
 
   const save = async () => {
     let paymentId: string | null = null;
@@ -595,13 +661,14 @@ function ConvertOption({ detail, onDone, onCancel }: { detail: ReservationDetail
             <p className="muted">{dateWithDay(r.date)} · {r.hallName}</p>
           </div>
           {step === "package"
-            ? <PackagePicker sale={sale} onChange={setSale} packages={catalog.data.packages} extras={catalog.data.extras} guests={r.guestCount} />
+            ? <PackagePicker sale={sale} onChange={setSale} packages={catalog.data.packages} extras={catalog.data.extras} menus={catalog.data.menus} guests={r.guestCount} />
             : <PaymentPlanner sale={sale} onChange={setSale} total={total} todayIso={today()} eventIso={r.date} />}
         </div>
       </div>
       <div className="wizard-foot">
         <button className="btn" onClick={step === "package" ? onCancel : () => setStep("package")}><Icon name="back" size={18} /> {step === "package" ? "Vazgeç" : "Geri"}</button>
         <span className="spacer" />
+        {sale.packageId && <TotalBar total={total} />}
         {step === "package" ? (
           <button className="btn btn-primary" disabled={!sale.packageId || total <= 0}
             onClick={() => { setSale((s) => ({ ...s, deposit: s.deposit || suggestDeposit(total) })); setStep("payment"); }}>

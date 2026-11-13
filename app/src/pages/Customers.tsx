@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "../App";
 import { api } from "../api";
 import { Icon } from "../components/Icon";
-import { Empty, Field, LoadError, Loading, Modal, useAction, useLoad } from "../components/ui";
+import { Empty, Field, hue, initials, LoadError, Loading, Modal, useAction, useLoad } from "../components/ui";
 import type { CustomerInput } from "../types";
 
 export function Customers() {
@@ -19,8 +19,8 @@ export function Customers() {
   return (
     <div className="content">
       <div className="content-wide stack">
-        <div className="row">
-          <div className="input-wrap" style={{ flex: 1, maxWidth: 560 }}>
+        <div className="row search-bar">
+          <div className="input-wrap search-big" style={{ flex: 1, minWidth: 560, maxWidth: 720 }}>
             <span className="prefix"><Icon name="search" size={19} /></span>
             <input className="input with-prefix" autoFocus placeholder="Ad, soyad, gelin/damat adı veya telefon ile arayın"
               value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -38,10 +38,15 @@ export function Customers() {
               <tbody>
                 {data.map((c) => (
                   <tr key={c.id} className="clickable" onClick={() => navigate({ name: "customer", id: c.id })}>
-                    <td className="strong">{c.fullName}</td>
-                    <td>{c.phone}</td>
-                    <td className="muted">{[c.brideName, c.groomName].filter(Boolean).join(" & ") || "—"}</td>
-                    <td className="num">{c.reservationCount}</td>
+                    <td>
+                      <div className="row" style={{ gap: 12, flexWrap: "nowrap" }}>
+                        <span className={`avatar avatar-sm hue-${hue(c.fullName)}`}>{initials(c.fullName)}</span>
+                        <span className="strong">{c.fullName}</span>
+                      </div>
+                    </td>
+                    <td><span className="row" style={{ gap: 6 }}><Icon name="phone" size={15} />{c.phone}</span></td>
+                    <td className="muted">{(c.brideName || c.groomName) ? <><Icon name="heart" size={14} /> {[c.brideName, c.groomName].filter(Boolean).join(" & ")}</> : "—"}</td>
+                    <td className="num"><span className="count-pill">{c.reservationCount}</span></td>
                   </tr>
                 ))}
               </tbody>

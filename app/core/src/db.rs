@@ -155,6 +155,77 @@ CREATE TABLE music_items (
 );
 CREATE INDEX ix_music_items_reservation ON music_items(reservation_id);
 ALTER TABLE reservations ADD COLUMN program_notes TEXT;
+"#,
+// 4: Yemek menüleri. Menünün kişi başı farkı (0 = paket fiyatına dahil) davetli sayısıyla çarpılıp toplama eklenir.
+// Seçilen menünün adı, fiyatı ve yemekleri rezervasyona kopyalanır; o düğüne özel düzenlenebilir,
+// katalogdaki menü sonradan değişse de yapılmış sözleşme değişmez.
+r#"
+CREATE TABLE menus (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    per_guest_price INTEGER NOT NULL DEFAULT 0 CHECK (per_guest_price >= 0),
+    is_active INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE menu_items (
+    id TEXT PRIMARY KEY,
+    menu_id TEXT NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
+    course TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ord INTEGER NOT NULL
+);
+CREATE INDEX ix_menu_items_menu ON menu_items(menu_id);
+CREATE TABLE reservation_menu_items (
+    id TEXT PRIMARY KEY,
+    reservation_id TEXT NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+    course TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ord INTEGER NOT NULL
+);
+CREATE INDEX ix_reservation_menu_items_reservation ON reservation_menu_items(reservation_id);
+ALTER TABLE reservations ADD COLUMN menu_name TEXT;
+ALTER TABLE reservations ADD COLUMN menu_per_guest INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reservations ADD COLUMN menu_price INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reservations ADD COLUMN menu_notes TEXT;
+"#,
+// 5: Seçenekli ek hizmetler. Aynı gruptaki ek hizmetlerden yalnızca biri seçilir (ör. "Pasta": muzlu / çilekli).
+// Ek hizmet sabit tutar ve/veya kişi başı fiyatla satılabilir; kişi başı kısım davetli sayısıyla
+// (paketin "en az kişi" sınırıyla) çarpılır. Satış anındaki fiyat rezervasyona kopyalanır.
+// reservation_extras.price hesaplanmış tutarı tutar (eski kayıtlarda sabit fiyatla aynıdır).
+r#"
+ALTER TABLE extras ADD COLUMN group_name TEXT;
+ALTER TABLE extras ADD COLUMN per_guest_price INTEGER NOT NULL DEFAULT 0 CHECK (per_guest_price >= 0);
+ALTER TABLE reservation_extras ADD COLUMN extra_id TEXT;
+ALTER TABLE reservation_extras ADD COLUMN group_name TEXT;
+ALTER TABLE reservation_extras ADD COLUMN base_price INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE reservation_extras ADD COLUMN per_guest INTEGER NOT NULL DEFAULT 0;
+UPDATE reservation_extras SET base_price = price;
+"#,
+// 6: Takvim eşitleme (Google Takvim / Outlook). Bağlı hesaplar ve hangi rezervasyonun takvimde hangi etkinlik olduğu.
+// Eşitleme tek yönlüdür; calendar_events.hash, etkinliğin son yazılan içeriğidir (değişmediyse tekrar yazılmaz).
+r#"
+CREATE TABLE calendar_accounts (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    email TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    access_token TEXT,
+    access_expires INTEGER,
+    calendar_id TEXT NOT NULL,
+    calendar_name TEXT NOT NULL,
+    connected_at TEXT NOT NULL,
+    connected_by TEXT,
+    last_sync_at TEXT,
+    last_error TEXT,
+    needs_reconnect INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE calendar_events (
+    account_id TEXT NOT NULL REFERENCES calendar_accounts(id) ON DELETE CASCADE,
+    reservation_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    PRIMARY KEY (account_id, reservation_id)
+);
 "#];
 
 pub fn open(path: &Path) -> AppResult<Connection> {

@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { useSession } from "../App";
 import { api } from "../api";
-import { Icon } from "../components/Icon";
+import { Icon, type IconName } from "../components/Icon";
 import { ReservationRow } from "../components/ReservationRow";
 import { Empty, LoadError, Loading, useLoad } from "../components/ui";
 import { addDays, dateLong, dateTime, isoDate, methodLabels, parseDate, tl, today } from "../format";
 import type { Method, ReservationSummary } from "../types";
 
 type Range = "today" | "week" | "month";
+
+const METHOD_TONE: Record<Method, "wine" | "plum" | "green"> = { nakit: "green", kredi_karti: "plum", havale: "wine" };
+const METHOD_ICON: Record<Method, IconName> = { nakit: "money", kredi_karti: "wallet", havale: "building" };
 
 function rangeOf(range: Range): { from: string; to: string; label: string } {
   const now = today();
@@ -51,10 +54,10 @@ export function Payments() {
   return (
     <div className="content">
       <div className="content-wide stack">
-        <div className="card">
+        <div className="card quick">
           <div className="card-title">Ödeme al</div>
           <div className="card-sub" style={{ marginBottom: 14 }}>Müşterinin adını veya telefonunu yazın, rezervasyonuna tıklayıp “Ödeme Al”a basın.</div>
-          <div className="input-wrap" style={{ maxWidth: 620 }}>
+          <div className="input-wrap search-big" style={{ maxWidth: 620 }}>
             <span className="prefix"><Icon name="search" size={19} /></span>
             <input className="input with-prefix" autoFocus placeholder="Müşteri adı, telefon veya kayıt numarası" value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
@@ -80,14 +83,20 @@ export function Payments() {
           </div>
           <div className="grid grid-4" style={{ marginBottom: 18 }}>
             {byMethod.map((m) => (
-              <div key={m.method} style={{ background: "var(--surface-alt)", borderRadius: 14, padding: "14px 18px" }}>
-                <div className="muted">{methodLabels[m.method]}</div>
-                <div className="strong" style={{ fontSize: 22 }}>{tl(m.total, true)}</div>
+              <div key={m.method} className={`pay-tile tone-${METHOD_TONE[m.method]}`}>
+                <span className="qi"><Icon name={METHOD_ICON[m.method]} size={20} /></span>
+                <div>
+                  <div className="k">{methodLabels[m.method]}</div>
+                  <div className="v">{tl(m.total, true)}</div>
+                </div>
               </div>
             ))}
-            <div style={{ background: "var(--gold-soft)", borderRadius: 14, padding: "14px 18px" }}>
-              <div className="muted">Toplam</div>
-              <div className="strong" style={{ fontSize: 22, color: "var(--primary)" }}>{tl(net, true)}</div>
+            <div className="pay-tile pay-total">
+              <span className="qi"><Icon name="check" size={20} /></span>
+              <div>
+                <div className="k">Toplam</div>
+                <div className="v">{tl(net, true)}</div>
+              </div>
             </div>
           </div>
           {list.error && <LoadError message={list.error} onRetry={list.reload} />}
@@ -100,7 +109,7 @@ export function Payments() {
                     <td>{dateTime(p.date)}</td>
                     <td className="strong">{p.customerName}</td>
                     <td>{p.no}{p.isRefund && <span className="badge badge-warning" style={{ marginLeft: 8 }}>İade</span>}</td>
-                    <td>{methodLabels[p.method]}</td>
+                    <td><span className={`method m-${p.method}`}>{methodLabels[p.method]}</span></td>
                     <td className="muted">{p.createdBy}</td>
                     <td className="num strong" style={{ color: p.isRefund ? "var(--danger)" : undefined }}>{p.isRefund ? "− " : ""}{tl(p.amount)}</td>
                   </tr>

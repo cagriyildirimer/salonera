@@ -2,20 +2,25 @@ import { useEffect, useState } from "react";
 import { useSession } from "../App";
 import { api } from "../api";
 import { Icon, type IconName } from "../components/Icon";
+import { MenuEditor } from "../components/MenuEditor";
+import { CalendarSyncTab } from "./CalendarSyncTab";
 import { Alert, Empty, Field, LoadError, Loading, Modal, MoneyInput, NumberInput, useAction, useFeedback, useLoad } from "../components/ui";
 import { dateTime, roleLabels, tl } from "../format";
-import { packageTotal, pricingOf, tariffText } from "../pricing";
+import { cleanDishes, dishSummary } from "../menu";
+import { extraTariffText, menuTariffText, packageTotal, pricingOf, tariffText } from "../pricing";
 import { shell } from "../shell";
-import type { BusinessSettings, Hall, Product, Role, User } from "../types";
+import type { BusinessSettings, Hall, Menu, MenuDish, Product, Role, User } from "../types";
 
-type Tab = "business" | "halls" | "packages" | "extras" | "users" | "password" | "system";
+type Tab = "business" | "halls" | "packages" | "menus" | "extras" | "users" | "calendar" | "password" | "system";
 
 const TABS: { id: Tab; label: string; icon: IconName; admin?: boolean }[] = [
   { id: "business", label: "İşletme ve sözleşme", icon: "building", admin: true },
   { id: "halls", label: "Salonlar", icon: "home", admin: true },
   { id: "packages", label: "Paketler", icon: "package", admin: true },
+  { id: "menus", label: "Yemek menüleri", icon: "utensils", admin: true },
   { id: "extras", label: "Ek hizmetler", icon: "star", admin: true },
   { id: "users", label: "Kullanıcılar", icon: "users", admin: true },
+  { id: "calendar", label: "Takvim eşitleme", icon: "calendar", admin: true },
   { id: "password", label: "Parolam", icon: "lock" },
   { id: "system", label: "Bağlantı ve yedek", icon: "wifi" },
 ];
@@ -27,13 +32,10 @@ export function SettingsPage({ tab: initial }: { tab?: string }) {
   return (
     <div className="content">
       <div className="content-wide" style={{ display: "grid", gridTemplateColumns: "250px minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
-        <div className="card" style={{ padding: 10 }}>
+        <div className="card side-tabs">
           {tabs.map((t) => (
-            <button key={t.id} className={`nav-item ${tab === t.id ? "active" : ""}`} style={{
-              width: "100%", color: tab === t.id ? "var(--primary)" : "var(--text)",
-              background: tab === t.id ? "var(--primary-soft)" : "transparent",
-            }} onClick={() => setTab(t.id)}>
-              <Icon name={t.icon} size={20} /> {t.label}
+            <button key={t.id} className={`side-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+              <span className="side-ic"><Icon name={t.icon} size={19} /></span> {t.label}
             </button>
           ))}
         </div>
@@ -41,8 +43,10 @@ export function SettingsPage({ tab: initial }: { tab?: string }) {
           {tab === "business" && <BusinessTab />}
           {tab === "halls" && <HallsTab />}
           {tab === "packages" && <ProductsTab kind="packages" />}
+          {tab === "menus" && <MenusTab />}
           {tab === "extras" && <ProductsTab kind="extras" />}
           {tab === "users" && <UsersTab />}
+          {tab === "calendar" && <CalendarSyncTab />}
           {tab === "password" && <PasswordTab />}
           {tab === "system" && <SystemTab />}
         </div>
@@ -146,21 +150,27 @@ function ProductsTab({ kind }: { kind: "packages" | "extras" }) {
       <div className="card-head">
         <div>
           <div className="card-title">{isPackage ? "Paketler" : "Ek hizmetler"}</div>
-          <div className="card-sub">Fiyat değişikliği yalnızca yeni satışları etkiler; yapılmış sözleşmeler değişmez.</div>
+          <div className="card-sub">
+            Fiyat değişikliği yalnızca yeni satışları etkiler; yapılmış sözleşmeler değişmez.
+            {!isPackage && <> Pasta gibi seçenekler için aynı “seçenek grubu”nu yazın (ör. Pasta → Muzlu, Çilekli); müşteri gruptan birini seçer.</>}
+          </div>
         </div>
         <button className="btn btn-primary" onClick={() => setEditing("new")}><Icon name="plus" /> {isPackage ? "Paket ekle" : "Hizmet ekle"}</button>
       </div>
       {error && <LoadError message={error} onRetry={reload} />}
       {loading && !data ? <Loading /> : (data ?? []).length === 0 ? (
-        <Empty icon="package">{isPackage ? "Henüz paket yok. Kesin kayıt yapabilmek için en az bir paket ekleyin." : "Henüz ek hizmet yok (isteğe bağlı)."}</Empty>
+        <Empty icon="package">{isPackage ? "Henüz paket yok. Kesin kayıt yapabilmek için en az bir paket ekleyin." : "Henüz ek hizmet yok (isteğe bağlı). Örnek: Pasta grubu → Muzlu pasta 3.500 ₺, Çilekli pasta 4.000 ₺."}</Empty>
       ) : (
         <table className="table">
           <thead><tr><th>Ad</th><th className="num">Fiyat</th><th>Durum</th><th /></tr></thead>
           <tbody>
             {data!.map((p) => (
               <tr key={p.id} className="clickable" onClick={() => setEditing(p)}>
-                <td><span className="strong">{p.name}</span>{p.description && <div className="muted small">{p.description}</div>}</td>
-                <td className="num strong">{isPackage ? tariffText(pricingOf(p)) : tl(p.price)}</td>
+                <td>
+                  {p.groupName && <span className="badge badge-muted" style={{ marginRight: 8 }}>{p.groupName}</span>}
+                  <span className="strong">{p.name}</span>{p.description && <div className="muted small">{p.description}</div>}
+                </td>
+                <td className="num strong">{isPackage ? tariffText(pricingOf(p)) : extraTariffText(p)}</td>
                 <td>{p.isActive ? <span className="badge badge-success">Satışta</span> : <span className="badge badge-muted">Satıştan kaldırıldı</span>}</td>
                 <td className="num"><Icon name="edit" size={18} /></td>
               </tr>
@@ -168,25 +178,29 @@ function ProductsTab({ kind }: { kind: "packages" | "extras" }) {
           </tbody>
         </table>
       )}
-      {editing && <ProductModal kind={kind} product={editing === "new" ? null : editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); void reload(); }} />}
+      {editing && <ProductModal kind={kind} product={editing === "new" ? null : editing}
+        groups={[...new Set((data ?? []).map((p) => p.groupName).filter((g): g is string => !!g))]} onClose={() => setEditing(null)} onDone={() => { setEditing(null); void reload(); }} />}
     </div>
   );
 }
 
-function ProductModal({ kind, product, onClose, onDone }: { kind: "packages" | "extras"; product: Product | null; onClose: () => void; onDone: () => void }) {
+function ProductModal({ kind, product, groups, onClose, onDone }: {
+  kind: "packages" | "extras"; product: Product | null; groups: string[]; onClose: () => void; onDone: () => void;
+}) {
   const isPackage = kind === "packages";
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
   const [price, setPrice] = useState(product?.price ?? 0);
   const [perGuestPrice, setPerGuestPrice] = useState(product?.perGuestPrice ?? 0);
   const [minGuests, setMinGuests] = useState(product?.minGuests ?? 0);
+  const [groupName, setGroupName] = useState(product?.groupName ?? "");
   const [active, setActive] = useState(product?.isActive ?? true);
   const { run, busy } = useAction();
   const pricing = { basePrice: price, perGuestPrice, minGuests: perGuestPrice > 0 ? minGuests : 0 };
   const save = () => run(() => {
     const body = isPackage
-      ? { name, description: description || null, price, perGuestPrice, minGuests: pricing.minGuests, isActive: active }
-      : { name, description: null, price, perGuestPrice: 0, minGuests: 0, isActive: active };
+      ? { name, description: description || null, price, perGuestPrice, minGuests: pricing.minGuests, groupName: null, isActive: active }
+      : { name, description: null, price, perGuestPrice, minGuests: 0, groupName: groupName.trim() || null, isActive: active };
     return isPackage ? api.savePackage(product?.id ?? null, body) : api.saveExtra(product?.id ?? null, body);
   }, "Kaydedildi.");
   return (
@@ -222,13 +236,120 @@ function ProductModal({ kind, product, onClose, onDone }: { kind: "packages" | "
             )}
           </>
         ) : (
-          <Field label="Fiyatı (KDV dahil)"><MoneyInput value={price} onChange={setPrice} /></Field>
+          <>
+            <Field label="Seçenek grubu (isteğe bağlı)"
+              hint="Aynı gruptakilerden müşteri yalnızca birini seçer (ör. Pasta → Muzlu / Çilekli / Frambuazlı). Bağımsız hizmetse boş bırakın.">
+              <input className="input" list="extra-groups" value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Pasta" />
+              <datalist id="extra-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
+            </Field>
+            <div className="grid grid-2" style={{ gap: 14 }}>
+              <Field label="Sabit fiyat (KDV dahil)" hint="Kişi sayısından bağımsız tutar. Yoksa boş bırakın.">
+                <MoneyInput value={price} onChange={setPrice} />
+              </Field>
+              <Field label="Kişi başı fiyat (KDV dahil)" hint="Davetli sayısıyla çarpılır. Yoksa boş bırakın.">
+                <MoneyInput value={perGuestPrice} onChange={setPerGuestPrice} />
+              </Field>
+            </div>
+            {perGuestPrice > 0 && (
+              <div className="muted small">
+                Örnek: 300 davetli → <b>{tl(price + perGuestPrice * 300)}</b> · 500 davetli → <b>{tl(price + perGuestPrice * 500)}</b>
+              </div>
+            )}
+          </>
         )}
         <label className="checkbox"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Satışta</label>
       </div>
       <div className="modal-actions">
         <button className="btn" onClick={onClose}>Vazgeç</button>
         <button className="btn btn-primary" disabled={busy} onClick={async () => { if (await save()) onDone(); }}>Kaydet</button>
+      </div>
+    </Modal>
+  );
+}
+
+function MenusTab() {
+  const { data, error, loading, reload } = useLoad(() => api.menus(true));
+  const [editing, setEditing] = useState<{ menu: Menu | null; copyOf?: Menu } | null>(null);
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div>
+          <div className="card-title">Yemek menüleri</div>
+          <div className="card-sub">
+            Kesin kayıtta paketle birlikte seçilir. Menü o düğüne kopyalanır ve müşteriye göre değiştirilebilir;
+            buradaki değişiklik yapılmış sözleşmeleri etkilemez.
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={() => setEditing({ menu: null })}><Icon name="plus" /> Menü ekle</button>
+      </div>
+      {error && <LoadError message={error} onRetry={reload} />}
+      {loading && !data ? <Loading /> : (data ?? []).length === 0 ? (
+        <Empty icon="utensils">Henüz menü yok. Örnek: “Klasik Menü” (paket fiyatına dahil), “Kuzu Tandır Menüsü” (kişi başı +150 ₺).</Empty>
+      ) : (
+        <table className="table">
+          <thead><tr><th>Menü</th><th className="num">Fiyat farkı</th><th>Durum</th><th /></tr></thead>
+          <tbody>
+            {data!.map((m) => (
+              <tr key={m.id} className="clickable" onClick={() => setEditing({ menu: m })}>
+                <td>
+                  <span className="strong">{m.name}</span>
+                  <div className="muted small">{dishSummary(m.items)}</div>
+                </td>
+                <td className="num strong">{menuTariffText(m.perGuestPrice)}</td>
+                <td>{m.isActive ? <span className="badge badge-success">Kullanımda</span> : <span className="badge badge-muted">Kaldırıldı</span>}</td>
+                <td className="num" style={{ whiteSpace: "nowrap" }}>
+                  <button className="btn btn-ghost icon-btn" title="Kopyasını oluştur"
+                    onClick={(e) => { e.stopPropagation(); setEditing({ menu: null, copyOf: m }); }}><Icon name="file" size={18} /></button>
+                  <Icon name="edit" size={18} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {editing && <MenuModal menu={editing.menu} copyOf={editing.copyOf} onClose={() => setEditing(null)} onDone={() => { setEditing(null); void reload(); }} />}
+    </div>
+  );
+}
+
+function MenuModal({ menu, copyOf, onClose, onDone }: { menu: Menu | null; copyOf?: Menu; onClose: () => void; onDone: () => void }) {
+  const source = menu ?? copyOf;
+  const [name, setName] = useState(menu ? menu.name : copyOf ? `${copyOf.name} (kopya)` : "");
+  const [description, setDescription] = useState(source?.description ?? "");
+  const [perGuestPrice, setPerGuestPrice] = useState(source?.perGuestPrice ?? 0);
+  const [active, setActive] = useState(source?.isActive ?? true);
+  const [items, setItems] = useState<MenuDish[]>(source?.items ?? []);
+  const { run, busy } = useAction();
+  const cleaned = cleanDishes(items);
+  const save = () => run(() => api.saveMenu(menu?.id ?? null, {
+    name, description: description || null, perGuestPrice, isActive: active, items: cleaned,
+  }), "Menü kaydedildi.");
+  return (
+    <Modal onClose={onClose} wide>
+      <h2>{menu ? "Menüyü düzenle" : "Yeni menü"}</h2>
+      <div className="stack" style={{ gap: 16, marginTop: 16 }}>
+        <div className="grid grid-2" style={{ gap: 14 }}>
+          <Field label="Menünün adı"><input className="input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Kuzu Tandır Menüsü" /></Field>
+          <Field label="Kişi başı fark (KDV dahil)" hint="Paket fiyatına eklenir, davetli sayısıyla çarpılır. Paket fiyatına dahilse boş bırakın.">
+            <MoneyInput value={perGuestPrice} onChange={setPerGuestPrice} />
+          </Field>
+        </div>
+        <Field label="Kısa açıklama (isteğe bağlı)" hint="Menü seçerken görünür.">
+          <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="4 çeşit, ana yemek kuzu" />
+        </Field>
+        {perGuestPrice > 0 && (
+          <div className="muted small">Örnek: 300 davetli → <b>+{tl(perGuestPrice * 300)}</b> · 500 davetli → <b>+{tl(perGuestPrice * 500)}</b></div>
+        )}
+        <div className="field">
+          <label>Yemekler</label>
+          <MenuEditor items={items} onChange={setItems} />
+        </div>
+        <label className="checkbox"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Kullanımda (satışta seçilebilir)</label>
+      </div>
+      <div className="modal-actions">
+        <button className="btn" onClick={onClose}>Vazgeç</button>
+        <button className="btn btn-primary" disabled={busy || !name.trim() || cleaned.length === 0}
+          onClick={async () => { if (await save()) onDone(); }}>Kaydet</button>
       </div>
     </Modal>
   );

@@ -119,13 +119,15 @@ impl ProductTable {
 
 pub fn list_products(conn: &Connection, kind: ProductTable, include_inactive: bool) -> AppResult<Vec<ProductDto>> {
     let columns = match kind {
-        ProductTable::Packages => "description, price, per_guest_price, min_guests",
-        ProductTable::Extras => "NULL, price, 0, 0",
+        ProductTable::Packages => "description, price, per_guest_price, min_guests, NULL",
+        ProductTable::Extras => "NULL, price, per_guest_price, 0, group_name",
     };
     let filter = if include_inactive { "" } else { "WHERE is_active = 1" };
     let sql = format!(
-        "SELECT id, name, {columns}, is_active FROM {} {filter} ORDER BY is_active DESC, price, name",
-        kind.table()
+        "SELECT id, name, {columns}, is_active FROM {} {filter} ORDER BY is_active DESC, {}price, name",
+        kind.table(),
+        // Ek hizmetlerde aynı grubun seçenekleri yan yana gelsin.
+        if matches!(kind, ProductTable::Extras) { "group_name IS NOT NULL, group_name, " } else { "" }
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], |r| {
@@ -136,7 +138,8 @@ pub fn list_products(conn: &Connection, kind: ProductTable, include_inactive: bo
             price: r.get(3)?,
             per_guest_price: r.get(4)?,
             min_guests: r.get(5)?,
-            is_active: r.get(6)?,
+            group_name: r.get(6)?,
+            is_active: r.get(7)?,
         })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -160,6 +163,7 @@ pub fn save_product(
     // Kişi başı fiyat yoksa "en az kişi" anlamsızdır; kafa karıştırmasın diye sıfırlanır.
     let min_guests = if request.per_guest_price == 0 { 0 } else { request.min_guests };
     let description = optional(&request.description, 1000);
+    let group_name = optional(&request.group_name, 60);
     let table = kind.table();
     let id = match id {
         Some(id) => {
@@ -170,8 +174,8 @@ pub fn save_product(
                     params![name, description, request.price, request.per_guest_price, min_guests, request.is_active, id],
                 )?,
                 ProductTable::Extras => conn.execute(
-                    "UPDATE extras SET name = ?1, price = ?2, is_active = ?3 WHERE id = ?4",
-                    params![name, request.price, request.is_active, id],
+                    "UPDATE extras SET name = ?1, price = ?2, per_guest_price = ?3, group_name = ?4, is_active = ?5 WHERE id = ?6",
+                    params![name, request.price, request.per_guest_price, group_name, request.is_active, id],
                 )?,
             };
             if changed == 0 {
@@ -188,8 +192,8 @@ pub fn save_product(
                     params![id, name, description, request.price, request.per_guest_price, min_guests, request.is_active],
                 )?,
                 ProductTable::Extras => conn.execute(
-                    "INSERT INTO extras (id, name, price, is_active) VALUES (?1, ?2, ?3, ?4)",
-                    params![id, name, request.price, request.is_active],
+                    "INSERT INTO extras (id, name, price, per_guest_price, group_name, is_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, name, request.price, request.per_guest_price, group_name, request.is_active],
                 )?,
             };
             id

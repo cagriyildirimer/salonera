@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, configureApi, setToken } from "./api";
+import { BrandMark } from "./components/Ornament";
 import { Icon, type IconName } from "./components/Icon";
 import { FeedbackProvider, initials, Loading, useFeedback } from "./components/ui";
 import { roleLabels } from "./format";
@@ -19,6 +20,7 @@ import { Reports } from "./pages/Reports";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PrintPage } from "./pages/PrintPage";
 import { ProgramPage } from "./pages/ProgramPage";
+import { MenuPage } from "./pages/MenuPage";
 
 export type Route =
   | { name: "home" }
@@ -26,12 +28,13 @@ export type Route =
   | { name: "new"; date?: string; hallId?: string; customerId?: string }
   | { name: "reservation"; id: string }
   | { name: "program"; id: string }
+  | { name: "menu"; id: string }
   | { name: "customers" }
   | { name: "customer"; id: string }
   | { name: "payments" }
   | { name: "reports" }
   | { name: "settings"; tab?: string }
-  | { name: "print"; kind: "contract" | "receipt" | "program"; id: string };
+  | { name: "print"; kind: "contract" | "receipt" | "program" | "menu"; id: string };
 
 interface Session {
   user: User;
@@ -171,7 +174,7 @@ const NAV: NavItem[] = [
 ];
 
 const TITLES: Record<Route["name"], string> = {
-  home: "Ana Sayfa", calendar: "Takvim", new: "Yeni Rezervasyon", reservation: "Rezervasyon", program: "Organizasyon Planı", customers: "Müşteriler",
+  home: "Ana Sayfa", calendar: "Takvim", new: "Yeni Rezervasyon", reservation: "Rezervasyon", program: "Organizasyon Planı", menu: "Yemek Menüsü", customers: "Müşteriler",
   customer: "Müşteri", payments: "Ödemeler", reports: "Raporlar", settings: "Ayarlar", print: "Yazdır",
 };
 
@@ -222,7 +225,7 @@ function Workspace({ config, info, user, onInfo, onSignOut }: {
 
   const session: Session = { user, info, config, isAdmin, navigate, replace, back, setLeaveGuard, refreshInfo, signOut: onSignOut };
   // Menüden açılan sayfalarda "Geri" gösterilmez; yalnızca bir sayfanın içinden açılanlarda gösterilir.
-  const showBack = history.length > 1 && ["reservation", "customer", "program"].includes(route.name);
+  const showBack = history.length > 1 && ["reservation", "customer", "program", "menu"].includes(route.name);
 
   if (route.name === "print") {
     return (
@@ -237,7 +240,7 @@ function Workspace({ config, info, user, onInfo, onSignOut }: {
       <div className="app">
         <aside className="sidebar no-print">
           <div className="brand">
-            <div className="brand-mark"><Icon name="heart" size={20} /></div>
+            <div className="brand-mark"><BrandMark size={48} /></div>
             <div>
               <div className="brand-name">Salonera</div>
               <div className="brand-sub">{info.businessName}</div>
@@ -290,6 +293,7 @@ function Page({ route }: { route: Route }) {
     case "new": return <Wizard date={route.date} hallId={route.hallId} customerId={route.customerId} />;
     case "reservation": return <ReservationPage id={route.id} />;
     case "program": return <ProgramPage id={route.id} />;
+    case "menu": return <MenuPage id={route.id} />;
     case "customers": return <Customers />;
     case "customer": return <CustomerPage id={route.id} />;
     case "payments": return <Payments />;

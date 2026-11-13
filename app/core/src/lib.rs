@@ -5,11 +5,13 @@
 
 pub mod auth;
 pub mod backup;
+pub mod calsync;
 pub mod catalog;
 pub mod customers;
 pub mod db;
 pub mod discovery;
 pub mod error;
+pub mod menus;
 pub mod model;
 pub mod payments;
 pub mod program;
@@ -51,23 +53,37 @@ pub struct App {
     pub sessions: Sessions,
     pub clock: Clock,
     pub backup_dir: Option<PathBuf>,
+    /// Google Takvim / Outlook eşitlemesi.
+    pub calsync: calsync::CalSync,
 }
 
 impl App {
     /// Veri klasöründeki `salonera.db` dosyasını açar (yoksa oluşturur).
     pub fn open(data_dir: &Path) -> AppResult<Arc<App>> {
+        Self::open_with_clock(data_dir, turkey_clock())
+    }
+
+    /// Saati dışarıdan verilen örnek (demo ortamı örnek veriyi geçmiş tarihlere yazarken kullanır).
+    pub fn open_with_clock(data_dir: &Path, clock: Clock) -> AppResult<Arc<App>> {
         let conn = db::open(&data_dir.join("salonera.db"))?;
         Ok(Arc::new(App {
             db: Mutex::new(conn),
             sessions: Sessions::default(),
-            clock: turkey_clock(),
+            clock,
             backup_dir: Some(data_dir.join("yedekler")),
+            calsync: calsync::CalSync::new(calsync::SyncConfig::from_env()),
         }))
     }
 
     /// Testler için bellekte çalışan, saati sabitlenebilen örnek.
     pub fn in_memory(clock: Clock) -> AppResult<Arc<App>> {
-        Ok(Arc::new(App { db: Mutex::new(db::open_in_memory()?), sessions: Sessions::default(), clock, backup_dir: None }))
+        Ok(Arc::new(App {
+            db: Mutex::new(db::open_in_memory()?),
+            sessions: Sessions::default(),
+            clock,
+            backup_dir: None,
+            calsync: calsync::CalSync::new(calsync::SyncConfig::default()),
+        }))
     }
 
     pub fn now(&self) -> NaiveDateTime {

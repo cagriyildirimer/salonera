@@ -10,6 +10,11 @@ async function invoke<R>(command: string, args?: Record<string, unknown>): Promi
 }
 
 const DEV_KEY = "salonera-dev-config";
+// Demo ortamı tarayıcıyı "?demo" ile açar: bağlantı sorusu sorulmadan bu bilgisayardaki demo sunucusuna bağlanılır.
+if (!inTauri && typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo")) {
+  localStorage.setItem(DEV_KEY, JSON.stringify({ mode: "main", serverUrl: "http://127.0.0.1:47800" }));
+  window.history.replaceState(null, "", window.location.pathname);
+}
 const devConfig = (): ShellConfig => JSON.parse(localStorage.getItem(DEV_KEY) ?? '{"mode":null,"serverUrl":null}');
 const saveDev = (config: ShellConfig) => {
   localStorage.setItem(DEV_KEY, JSON.stringify(config));

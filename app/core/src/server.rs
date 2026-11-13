@@ -4,7 +4,10 @@ use std::sync::Arc;
 use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::request::Parts;
 use axum::http::header::AUTHORIZATION;
-use axum::routing::{get, post, put};
+use axum::extract::Request;
+use axum::middleware::{self, Next};
+use axum::response::Response;
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use chrono::{Datelike, NaiveDate};
 use serde::Deserialize;
@@ -14,7 +17,8 @@ use crate::auth::{self, SessionUser};
 use crate::catalog::{self, ProductTable};
 use crate::error::{AppError, AppResult};
 use crate::model::*;
-use crate::{backup, customers, payments, program, reports, reservations, App, Ctx};
+use crate::calsync::{self, CalendarSyncStatus, Provider};
+use crate::{backup, customers, menus, payments, program, reports, reservations, App, Ctx};
 
 type AppState = Arc<App>;
 
@@ -75,6 +79,8 @@ pub fn router(app: AppState) -> Router {
         .route("/api/packages/{id}", put(update_package))
         .route("/api/extras", get(list_extras).post(create_extra))
         .route("/api/extras/{id}", put(update_extra))
+        .route("/api/menus", get(list_menus).post(create_menu))
+        .route("/api/menus/{id}", put(update_menu))
         .route("/api/users", get(list_users).post(create_user))
         .route("/api/users/{id}", put(update_user))
         .route("/api/customers", get(list_customers).post(create_customer))
@@ -89,6 +95,9 @@ pub fn router(app: AppState) -> Router {
         .route("/api/reservations/{id}/plan", put(set_plan))
         .route("/api/reservations/{id}/payments", post(take_payment))
         .route("/api/reservations/{id}/refunds", post(refund))
+        .route("/api/reservations/{id}/menu", put(save_reservation_menu))
+        .route("/api/reservations/{id}/extras", put(change_extras))
+        .route("/api/reservations/{id}/menu/select", post(select_menu))
         .route("/api/reservations/{id}/program", get(get_program).put(save_program))
         .route("/api/payments", get(list_payments))
         .route("/api/payments/{id}", get(get_payment))
@@ -97,7 +106,15 @@ pub fn router(app: AppState) -> Router {
         .route("/api/reports/year", get(year_report))
         .route("/api/reports/receivables", get(receivables))
         .route("/api/reports/halls", get(hall_usage))
+        .route("/api/reports/sales", get(sales_report))
+        .route("/api/reports/due", get(due_report))
         .route("/api/backups", get(list_backups).post(create_backup))
+        .route("/api/calendar-sync", get(calendar_sync_status))
+        .route("/api/calendar-sync/connect", post(calendar_sync_connect))
+        .route("/api/calendar-sync/cancel", post(calendar_sync_cancel))
+        .route("/api/calendar-sync/now", post(calendar_sync_now))
+        .route("/api/calendar-sync/accounts/{id}", delete(calendar_sync_disconnect))
+        .layer(middleware::from_fn_with_state(app.clone(), track_changes))
         .layer(CorsLayer::permissive())
         .with_state(app)
 }
@@ -114,7 +131,21 @@ pub async fn serve(app: AppState, port: u16) -> std::io::Result<()> {
             let _ = tokio::task::spawn_blocking(move || daily_backup(&app)).await;
         }
     });
+    tokio::spawn(calsync::worker(app.clone()));
     axum::serve(listener, router(app)).await
+}
+
+/// Başarılı her yazma isteğinden sonra takvim eşitlemesini uyandırır (bağlı hesap yoksa iş yapmaz).
+async fn track_changes(State(app): State<AppState>, request: Request, next: Next) -> Response {
+    let path = request.uri().path();
+    let writes = request.method() != axum::http::Method::GET
+        && !path.starts_with("/api/calendar-sync")
+        && !matches!(path, "/api/login" | "/api/logout" | "/api/me/password");
+    let response = next.run(request).await;
+    if writes && response.status().is_success() {
+        app.calsync.changed();
+    }
+    response
 }
 
 fn daily_backup(app: &App) {
@@ -245,6 +276,23 @@ async fn update_extra(
     Json(body): Json<SaveProductRequest>,
 ) -> AppResult<Json<String>> {
     as_user(&app, user, move |c, ctx| catalog::save_product(c, ctx, ProductTable::Extras, Some(&id), &body)).await
+}
+
+async fn list_menus(State(app): State<AppState>, Auth(user): Auth, Query(q): Query<AllQuery>) -> AppResult<Json<Vec<MenuDto>>> {
+    as_user(&app, user, move |c, _| menus::list(c, q.all)).await
+}
+
+async fn create_menu(State(app): State<AppState>, Auth(user): Auth, Json(body): Json<SaveMenuRequest>) -> AppResult<Json<String>> {
+    as_user(&app, user, move |c, ctx| menus::save(c, ctx, None, &body)).await
+}
+
+async fn update_menu(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Path(id): Path<String>,
+    Json(body): Json<SaveMenuRequest>,
+) -> AppResult<Json<String>> {
+    as_user(&app, user, move |c, ctx| menus::save(c, ctx, Some(&id), &body)).await
 }
 
 async fn list_users(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<Vec<UserDto>>> {
@@ -428,6 +476,33 @@ async fn refund(
     as_user(&app, user, move |c, ctx| payments::refund(c, ctx, &id, &body)).await
 }
 
+async fn select_menu(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Path(id): Path<String>,
+    Json(body): Json<SelectMenuRequest>,
+) -> AppResult<Json<()>> {
+    as_user(&app, user, move |c, ctx| menus::select(c, ctx, &id, &body)).await
+}
+
+async fn change_extras(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Path(id): Path<String>,
+    Json(body): Json<ChangeExtrasRequest>,
+) -> AppResult<Json<()>> {
+    as_user(&app, user, move |c, ctx| menus::change_extras(c, ctx, &id, &body)).await
+}
+
+async fn save_reservation_menu(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Path(id): Path<String>,
+    Json(body): Json<SaveReservationMenuRequest>,
+) -> AppResult<Json<()>> {
+    as_user(&app, user, move |c, ctx| menus::save_content(c, ctx, &id, &body)).await
+}
+
 async fn get_program(State(app): State<AppState>, Auth(user): Auth, Path(id): Path<String>) -> AppResult<Json<Program>> {
     as_user(&app, user, move |c, _| program::get(c, &id)).await
 }
@@ -480,6 +555,14 @@ async fn hall_usage(State(app): State<AppState>, Auth(user): Auth, Query(q): Que
     as_user(&app, user, move |c, ctx| reports::hall_usage(c, ctx, q.from, q.to)).await
 }
 
+async fn sales_report(State(app): State<AppState>, Auth(user): Auth, Query(q): Query<RangeQuery>) -> AppResult<Json<Vec<SalesRow>>> {
+    as_user(&app, user, move |c, ctx| reports::sales(c, ctx, q.from, q.to)).await
+}
+
+async fn due_report(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<Vec<DueRow>>> {
+    as_user(&app, user, |c, ctx| reports::due(c, ctx)).await
+}
+
 async fn list_backups(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<Vec<BackupInfo>>> {
     user.require_admin()?;
     run(&app, |app| match &app.backup_dir {
@@ -497,4 +580,47 @@ async fn create_backup(State(app): State<AppState>, Auth(user): Auth) -> AppResu
         app.with_db(|c| backup::create(c, &dir, now))
     })
     .await
+}
+
+// ---------------- Takvim eşitleme ----------------
+async fn calendar_sync_status(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<CalendarSyncStatus>> {
+    run(&app, move |app| calsync::status(app, &app.ctx(user))).await
+}
+
+#[derive(Deserialize)]
+struct ConnectRequest {
+    provider: Provider,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectResponse {
+    auth_url: String,
+}
+
+async fn calendar_sync_connect(
+    State(app): State<AppState>,
+    Auth(user): Auth,
+    Json(body): Json<ConnectRequest>,
+) -> AppResult<Json<ConnectResponse>> {
+    let ctx = app.ctx(user);
+    let auth_url = calsync::connect(app.clone(), &ctx, body.provider).await?;
+    Ok(Json(ConnectResponse { auth_url }))
+}
+
+async fn calendar_sync_cancel(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<()>> {
+    user.require_admin()?;
+    app.calsync.cancel_pending();
+    Ok(Json(()))
+}
+
+async fn calendar_sync_now(State(app): State<AppState>, Auth(user): Auth) -> AppResult<Json<()>> {
+    user.require_admin()?;
+    app.calsync.changed();
+    Ok(Json(()))
+}
+
+async fn calendar_sync_disconnect(State(app): State<AppState>, Auth(user): Auth, Path(id): Path<String>) -> AppResult<Json<()>> {
+    let ctx = app.ctx(user);
+    calsync::disconnect(&app, &ctx, &id).await.map(Json)
 }

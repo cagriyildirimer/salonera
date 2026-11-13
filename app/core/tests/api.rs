@@ -374,6 +374,215 @@ async fn package_price_follows_guest_count() {
 }
 
 #[tokio::test]
+async fn food_menus_are_priced_copied_and_editable() {
+    let api = Api::new().await;
+    let kristal = api.hall(0).await;
+    let dishes = |main: &str| json!([
+        {"course": "Çorba", "name": "Mercimek çorbası"},
+        {"course": "Ana yemek", "name": main},
+        {"course": "Tatlı", "name": "Fırın sütlaç"}
+    ]);
+
+    // Yemeksiz menü kaydedilemez; kişi başı fark eksi olamaz.
+    let message = api.rule_error(Method::POST, "/api/menus", json!({"name": "Boş", "isActive": true, "items": []})).await;
+    assert!(message.contains("en az bir yemek"), "{message}");
+    let message = api
+        .rule_error(Method::POST, "/api/menus", json!({"name": "X", "perGuestPrice": -1, "isActive": true, "items": dishes("Pilav")}))
+        .await;
+    assert!(message.contains("eksi"), "{message}");
+
+    let classic = api
+        .ok(Method::POST, "/api/menus", json!({"name": "Klasik Menü", "isActive": true, "items": dishes("Tavuk sote")}))
+        .await
+        .as_str()
+        .unwrap()
+        .to_string();
+    let lamb = api
+        .ok(Method::POST, "/api/menus", json!({
+            "name": "Kuzu Tandır Menüsü", "perGuestPrice": 150_00, "isActive": true, "items": dishes("Kuzu tandır")
+        }))
+        .await
+        .as_str()
+        .unwrap()
+        .to_string();
+    let listed = api.get("/api/menus").await;
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    assert_eq!(listed[0]["name"], "Klasik Menü"); // farksız menü önce
+    assert_eq!(listed[1]["items"][1]["name"], "Kuzu tandır");
+
+    // 50.000 TL sabit + kişi başı 1.000 TL (en az 200 kişi). Menü farkı da en az 200 kişi üzerinden:
+    // 50.000 + 200 × 1.000 + 200 × 150 = 280.000 TL.
+    let package = api
+        .ok(Method::POST, "/api/packages", json!({
+            "name": "Yemekli Paket", "price": 50_000_00, "perGuestPrice": 1_000_00, "minGuests": 200, "isActive": true
+        }))
+        .await
+        .as_str()
+        .unwrap()
+        .to_string();
+    let created = api
+        .ok(Method::POST, "/api/reservations", json!({
+            "newCustomer": new_customer("Derya Aydın"), "hallId": kristal, "date": "2026-10-10",
+            "start": "19:00", "end": "23:30", "kind": "dugun", "guestCount": 150,
+            "sale": {"packageId": package, "menuId": lamb, "firstPayment": {"amount": 50_000_00, "method": "nakit"}}
+        }))
+        .await;
+    let id = created["reservationId"].as_str().unwrap().to_string();
+    let path = format!("/api/reservations/{id}");
+    let detail = api.get(&path).await;
+    assert_eq!(detail["menuName"], "Kuzu Tandır Menüsü");
+    assert_eq!(detail["menuPerGuest"], 150_00);
+    assert_eq!(detail["menuPrice"], 30_000_00);
+    assert_eq!(detail["summary"]["total"], 280_000_00);
+    assert_eq!(detail["menuItems"], dishes("Kuzu tandır"));
+
+    // Katalogdaki menü değişse de yapılmış sözleşme ve o düğünün menüsü değişmez.
+    api.ok(Method::PUT, &format!("/api/menus/{lamb}"), json!({
+        "name": "Kuzu Tandır Menüsü", "perGuestPrice": 400_00, "isActive": true, "items": dishes("Kuzu incik")
+    })).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["menuPrice"], 30_000_00);
+    assert_eq!(detail["menuItems"][1]["name"], "Kuzu tandır");
+
+    // Düğüne özel düzenleme: yemekler ve mutfak notu değişir, fiyat değişmez.
+    api.ok(Method::PUT, &format!("{path}/menu"), json!({
+        "items": [{"course": "Ana yemek", "name": "Kuzu tandır"}, {"course": "Tatlı", "name": "Künefe"}],
+        "notes": "12 çocuk menüsü, 3 vejetaryen"
+    })).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["menuItems"].as_array().unwrap().len(), 2);
+    assert_eq!(detail["menuItems"][1]["name"], "Künefe");
+    assert_eq!(detail["menuNotes"], "12 çocuk menüsü, 3 vejetaryen");
+    assert_eq!(detail["summary"]["total"], 280_000_00);
+    let message = api.rule_error(Method::PUT, &format!("{path}/menu"), json!({"items": [{"course": "", "name": "Pilav"}]})).await;
+    assert!(message.contains("bölümü"), "{message}");
+
+    // Davetli artınca menü farkı da satış anındaki fiyatla yeniden hesaplanır: 50.000 + 300 × 1.150 = 395.000 TL.
+    api.ok(Method::PUT, &path, json!({
+        "hallId": kristal, "date": "2026-10-10", "start": "19:00", "end": "23:30",
+        "kind": "dugun", "guestCount": 300, "reprice": true
+    })).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["packagePrice"], 350_000_00);
+    assert_eq!(detail["menuPrice"], 45_000_00);
+    assert_eq!(detail["summary"]["total"], 395_000_00);
+
+    // Farksız menüye geçilince fark ödenmemiş taksitten düşülür; yemekler yeni menüden gelir, mutfak notu kalır.
+    api.ok(Method::POST, &format!("{path}/menu/select"), json!({"menuId": classic})).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["menuName"], "Klasik Menü");
+    assert_eq!(detail["menuPrice"], 0);
+    assert_eq!(detail["summary"]["total"], 350_000_00);
+    assert_eq!(detail["installments"][1]["amount"], 300_000_00);
+    assert_eq!(detail["menuItems"][1]["name"], "Tavuk sote");
+    assert_eq!(detail["menuNotes"], "12 çocuk menüsü, 3 vejetaryen");
+
+    // Hepsi ödenmişken farklı menüye geçilirse "menü değişikliği" taksiti açılır (yeni fiyat: 300 × 400 TL).
+    api.ok(Method::POST, &format!("{path}/payments"), json!({"amount": 300_000_00, "method": "havale"})).await;
+    api.ok(Method::POST, &format!("{path}/menu/select"), json!({"menuId": lamb})).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["menuPrice"], 120_000_00);
+    assert_eq!(detail["summary"]["remaining"], 120_000_00);
+    let plan = detail["installments"].as_array().unwrap();
+    assert_eq!(plan.last().unwrap()["label"], "Ek ödeme (menü değişikliği)");
+
+    // Ödenmiş paranın altına inen menü değişikliği yapılamaz.
+    api.ok(Method::POST, &format!("{path}/payments"), json!({"amount": 120_000_00, "method": "havale"})).await;
+    let message = api.rule_error(Method::POST, &format!("{path}/menu/select"), json!({"menuId": null})).await;
+    assert!(message.contains("menüyü değiştirin"), "{message}");
+    assert_eq!(api.get(&path).await["menuName"], "Kuzu Tandır Menüsü");
+
+    // Ön rezervasyonda menü seçilmez; kesin kayda çevrilirken seçilir. Kullanımdan kaldırılan menü satılamaz.
+    let option = api.ok(Method::POST, "/api/reservations", option_request(&kristal, "2026-11-14", "19:00", "23:00", "Can Er")).await;
+    let option_id = option["reservationId"].as_str().unwrap().to_string();
+    let message = api.rule_error(Method::POST, &format!("/api/reservations/{option_id}/menu/select"), json!({"menuId": classic})).await;
+    assert!(message.contains("kesin kayıtta"), "{message}");
+    api.ok(Method::PUT, &format!("/api/menus/{classic}"), json!({
+        "name": "Klasik Menü", "isActive": false, "items": dishes("Tavuk sote")
+    })).await;
+    assert_eq!(api.get("/api/menus").await.as_array().unwrap().len(), 1);
+    assert_eq!(api.get("/api/menus?all=true").await.as_array().unwrap().len(), 2);
+    let message = api
+        .rule_error(Method::POST, &format!("/api/reservations/{option_id}/confirm"), json!({"packageId": package, "menuId": classic}))
+        .await;
+    assert!(message.contains("menü bulunamadı"), "{message}");
+}
+
+#[tokio::test]
+async fn option_groups_like_cake_flavours() {
+    let api = Api::new().await;
+    let kristal = api.hall(0).await;
+    let extra = |body: Value| async { api.ok(Method::POST, "/api/extras", body).await.as_str().unwrap().to_string() };
+    let banana = extra(json!({"name": "Muzlu pasta", "groupName": "Pasta", "price": 3_500_00, "isActive": true})).await;
+    let strawberry = extra(json!({"name": "Çilekli pasta", "groupName": "Pasta", "price": 4_000_00, "isActive": true})).await;
+    // Kişi başı seçenek: 1.000 TL sabit + kişi başı 20 TL.
+    let nuts = extra(json!({"name": "Kuruyemiş ikramı", "price": 1_000_00, "perGuestPrice": 20_00, "isActive": true})).await;
+    let listed = api.get("/api/extras").await;
+    assert_eq!(listed[0]["groupName"], Value::Null); // grupsuzlar önce, sonra grup grup
+    assert_eq!(listed[1]["groupName"], "Pasta");
+    assert_eq!(listed[1]["name"], "Muzlu pasta");
+
+    let package = api.package("Salon Paketi", 100_000).await;
+    let sale = |ids: Value| json!({
+        "newCustomer": new_customer("Gizem Ak"), "hallId": kristal, "date": "2026-08-22",
+        "start": "19:00", "end": "23:00", "kind": "dugun", "guestCount": 250,
+        "sale": {"packageId": package, "extraIds": ids, "firstPayment": {"amount": 20_000_00, "method": "nakit"}}
+    });
+
+    // Aynı gruptan iki seçenek seçilemez.
+    let message = api.rule_error(Method::POST, "/api/reservations", sale(json!([banana, strawberry]))).await;
+    assert!(message.contains("“Pasta” seçeneklerinden yalnızca biri"), "{message}");
+
+    // 100.000 + muzlu 3.500 + kuruyemiş (1.000 + 250 × 20 = 6.000) = 109.500 TL.
+    let created = api.ok(Method::POST, "/api/reservations", sale(json!([banana, nuts]))).await;
+    let id = created["reservationId"].as_str().unwrap().to_string();
+    let path = format!("/api/reservations/{id}");
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["total"], 109_500_00);
+    let extras = detail["extras"].as_array().unwrap();
+    assert_eq!(extras.len(), 2);
+    assert_eq!(extras[0]["groupName"], "Pasta");
+    assert_eq!(extras[0]["extraId"], banana.as_str());
+    assert_eq!(extras[1]["price"], 6_000_00);
+    assert_eq!(extras[1]["perGuest"], 20_00);
+
+    // Davetli artınca kişi başı seçenek yeniden hesaplanır: 1.000 + 300 × 20 = 7.000 TL.
+    api.ok(Method::PUT, &path, json!({
+        "hallId": kristal, "date": "2026-08-22", "start": "19:00", "end": "23:00",
+        "kind": "dugun", "guestCount": 300, "reprice": true
+    })).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["total"], 110_500_00);
+    assert_eq!(detail["extras"][1]["price"], 7_000_00);
+
+    // Katalog fiyatı artsa da rezervasyondaki seçenek eski fiyatla kalır; yeni seçilen güncel fiyatla gelir.
+    api.ok(Method::PUT, &format!("/api/extras/{nuts}"), json!({
+        "name": "Kuruyemiş ikramı", "price": 9_000_00, "perGuestPrice": 50_00, "isActive": true
+    })).await;
+    // Tadımdan sonra pasta çilekliye döndü: fark (+500 TL) ödenmemiş taksite eklenir.
+    api.ok(Method::PUT, &format!("{path}/extras"), json!({"extraIds": [strawberry, nuts]})).await;
+    let detail = api.get(&path).await;
+    assert_eq!(detail["summary"]["total"], 111_000_00);
+    assert_eq!(detail["extras"][0]["name"], "Çilekli pasta");
+    assert_eq!(detail["extras"][1]["price"], 7_000_00);
+    let plan = detail["installments"].as_array().unwrap();
+    assert_eq!(plan.iter().map(|x| x["amount"].as_i64().unwrap()).sum::<i64>(), 111_000_00);
+
+    // Pasta istemiyorsa kaldırılır; gruptan iki seçenek yine olmaz.
+    let message = api.rule_error(Method::PUT, &format!("{path}/extras"), json!({"extraIds": [strawberry, banana]})).await;
+    assert!(message.contains("yalnızca biri"), "{message}");
+    api.ok(Method::PUT, &format!("{path}/extras"), json!({"extraIds": [nuts]})).await;
+    assert_eq!(api.get(&path).await["summary"]["total"], 107_000_00);
+
+    // Ön rezervasyonda seçenek değiştirilemez (kesin kayıtta seçilir).
+    let option = api.ok(Method::POST, "/api/reservations", option_request(&kristal, "2026-11-21", "19:00", "23:00", "Can Er")).await;
+    let message = api
+        .rule_error(Method::PUT, &format!("/api/reservations/{}/extras", option["reservationId"].as_str().unwrap()), json!({"extraIds": [banana]}))
+        .await;
+    assert!(message.contains("kesin kayıtta"), "{message}");
+}
+
+#[tokio::test]
 async fn event_program_timeline_and_music() {
     let api = Api::new().await;
     let kristal = api.hall(0).await;
@@ -590,4 +799,66 @@ fn urlencode(text: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+#[tokio::test]
+async fn reports_list_sales_details_and_open_installments() {
+    let api = Api::new().await;
+    let kristal = api.hall(0).await;
+    let bahce = api.hall(1).await;
+    let gold = api.package("Altın Paket", 200_000).await;
+    let photo = api.extra("Fotoğraf", 20_000).await;
+
+    let sold = api
+        .ok(Method::POST, "/api/reservations", json!({
+            "newCustomer": new_customer("İpek Işık"), "hallId": kristal, "date": "2026-09-12",
+            "start": "19:00", "end": "00:00", "kind": "dugun", "guestCount": 350,
+            "sale": {"packageId": gold, "extraIds": [photo], "discount": 10_000_00,
+                     "firstPayment": {"amount": 50_000_00, "method": "nakit"}}
+        }))
+        .await["reservationId"].as_str().unwrap().to_string();
+    api.ok(Method::PUT, &format!("/api/reservations/{sold}/plan"), json!({"plan": [
+        {"label": "Kapora", "dueDate": "2026-03-02", "amount": 50_000_00},
+        {"label": "1. taksit", "dueDate": "2026-05-01", "amount": 80_000_00},
+        {"label": "2. taksit", "dueDate": "2026-08-01", "amount": 80_000_00}
+    ]})).await;
+    api.ok(Method::POST, &format!("/api/reservations/{sold}/payments"), json!({"amount": 30_000_00, "method": "havale"})).await;
+    let cancelled = api
+        .ok(Method::POST, "/api/reservations", option_request(&bahce, "2026-09-13", "14:00", "18:00", "Ece Kaya"))
+        .await["reservationId"].as_str().unwrap().to_string();
+    api.ok(Method::POST, &format!("/api/reservations/{cancelled}/cancel"), json!({"reason": "Başka salon"})).await;
+    // Aralık dışındaki kayıt rapora girmez.
+    api.ok(Method::POST, "/api/reservations", option_request(&bahce, "2026-11-01", "14:00", "18:00", "Ayrı Gün")).await;
+
+    // Satış analizi: iptaller dahil, paket ve ek hizmet ayrıntısıyla, kaydı açan kişiyle.
+    let sales = api.get("/api/reports/sales?from=2026-09-01&to=2026-09-30").await;
+    let rows = sales.as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["customerName"], "İpek Işık");
+    assert_eq!(rows[0]["packageName"], "Altın Paket");
+    assert_eq!(rows[0]["extras"][0]["name"], "Fotoğraf");
+    assert_eq!(rows[0]["discount"], 10_000_00);
+    assert_eq!(rows[0]["total"], 210_000_00);
+    assert_eq!(rows[0]["paid"], 80_000_00);
+    assert_eq!(rows[0]["createdBy"], "Ayşe Yönetici");
+    assert_eq!(rows[0]["createdOn"], "2026-03-02");
+    assert_eq!(rows[1]["status"], "iptal");
+    assert_eq!(rows[1]["cancelReason"], "Başka salon");
+
+    // Tahsilat takvimi: kapanmamış taksitler; kısmen ödenen ve vadesi geçen işaretli.
+    api.set_today(NaiveDate::from_ymd_opt(2026, 5, 10).unwrap());
+    let due = api.get("/api/reports/due").await;
+    let due = due.as_array().unwrap();
+    assert_eq!(due.len(), 2);
+    assert_eq!(due[0]["label"], "1. taksit");
+    assert_eq!(due[0]["paid"], 30_000_00);
+    assert_eq!(due[0]["state"], "gecikti");
+    assert_eq!(due[1]["dueDate"], "2026-08-01");
+    assert_eq!(due[1]["state"], "bekliyor");
+
+    // Raporlar yalnızca yönetici içindir.
+    api.ok(Method::POST, "/api/users", json!({"name": "Mehmet", "username": "mehmet", "password": "Salon2026", "role": "calisan", "isActive": true})).await;
+    let staff = api.login("mehmet", "Salon2026").await;
+    let (status, _) = api.call_as(&staff, Method::GET, "/api/reports/due", Value::Null).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

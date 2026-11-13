@@ -3,6 +3,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transact
 
 use crate::auth::audit;
 use crate::customers;
+use crate::menus;
 use crate::error::{rule, AppError, AppResult};
 use crate::model::*;
 use crate::payments;
@@ -41,7 +42,7 @@ pub fn allocate(installments: &[(String, String, NaiveDate, i64)], paid: i64, to
         .collect()
 }
 
-fn installment_rows(conn: &Connection, reservation_id: &str) -> AppResult<Vec<(String, String, NaiveDate, i64)>> {
+pub(crate) fn installment_rows(conn: &Connection, reservation_id: &str) -> AppResult<Vec<(String, String, NaiveDate, i64)>> {
     let mut stmt =
         conn.prepare("SELECT id, label, due_date, amount FROM installments WHERE reservation_id = ?1 ORDER BY ord")?;
     let rows = stmt.query_map([reservation_id], |r| {
@@ -316,15 +317,17 @@ fn apply_sale(
     let package_price = pricing.total(guests);
     let mut extras = Vec::new();
     for extra_id in &sale.extra_ids {
-        let extra: ExtraLine = tx
-            .query_row("SELECT name, price FROM extras WHERE id = ?1 AND is_active = 1", [extra_id], |r| {
-                Ok(ExtraLine { name: r.get(0)?, price: r.get(1)? })
-            })
-            .optional()?
-            .ok_or_else(|| AppError::Rule("Seçilen ek hizmetlerden biri bulunamadı.".into()))?;
-        extras.push(extra);
+        if !extras.iter().any(|x: &ExtraLine| x.extra_id.as_deref() == Some(extra_id.as_str())) {
+            extras.push(catalog_extra(tx, extra_id, guests, pricing.min_guests)?);
+        }
     }
-    let gross = package_price + extras.iter().map(|x| x.price).sum::<i64>();
+    check_groups(&extras)?;
+    let menu = match &sale.menu_id {
+        Some(menu_id) => Some(menus::load_for_sale(tx, menu_id)?),
+        None => None,
+    };
+    let menu_price = menu.as_ref().map_or(0, |m| menu_total(m.per_guest_price, guests, pricing.min_guests));
+    let gross = package_price + menu_price + extras.iter().map(|x| x.price).sum::<i64>();
     if sale.discount < 0 {
         return rule("İndirim eksi olamaz.");
     }
@@ -333,13 +336,7 @@ fn apply_sale(
     }
     let total = gross - sale.discount;
 
-    tx.execute("DELETE FROM reservation_extras WHERE reservation_id = ?1", [reservation_id])?;
-    for extra in &extras {
-        tx.execute(
-            "INSERT INTO reservation_extras (id, reservation_id, name, price) VALUES (?1, ?2, ?3, ?4)",
-            params![new_id(), reservation_id, extra.name, extra.price],
-        )?;
-    }
+    write_extras(tx, reservation_id, &extras)?;
     tx.execute(
         "UPDATE reservations SET status = 'kesin', option_until = NULL, package_name = ?1, package_price = ?2,
                 discount = ?3, total = ?4, confirmed_at = ?5, package_base_price = ?6, package_per_guest = ?7,
@@ -356,6 +353,7 @@ fn apply_sale(
             reservation_id
         ],
     )?;
+    menus::write_reservation_menu(tx, reservation_id, menu.as_ref(), menu_price)?;
 
     let today = ctx.today();
     let plan = if sale.plan.is_empty() {
@@ -507,8 +505,8 @@ pub fn update(conn: &mut Connection, ctx: &Ctx, id: &str, request: &UpdateReserv
     Ok(())
 }
 
-/// Kesin kayıtta paket tutarını yeni davetli sayısıyla, satış anındaki fiyatlarla yeniden hesaplar;
-/// toplamı ve ödeme planını buna göre düzeltir. Fiyat değişmiyorsa hiçbir şey yapmaz.
+/// Kesin kayıtta paket tutarını ve menü farkını yeni davetli sayısıyla, satış anındaki fiyatlarla
+/// yeniden hesaplar; toplamı ve ödeme planını buna göre düzeltir. Fiyat değişmiyorsa hiçbir şey yapmaz.
 /// Değiştiyse (eski toplam, yeni toplam) döner.
 fn reprice(
     tx: &Transaction<'_>,
@@ -517,8 +515,8 @@ fn reprice(
     today: NaiveDate,
     event_date: NaiveDate,
 ) -> AppResult<Option<(i64, i64)>> {
-    let (pricing, old_package, discount, old_total) = tx.query_row(
-        "SELECT package_base_price, package_per_guest, package_min_guests, package_price, discount, total
+    let (pricing, old_package, menu_per_guest) = tx.query_row(
+        "SELECT package_base_price, package_per_guest, package_min_guests, package_price, menu_per_guest
          FROM reservations WHERE id = ?1",
         [id],
         |r| {
@@ -526,17 +524,133 @@ fn reprice(
                 PackagePricing { base_price: r.get(0)?, per_guest_price: r.get(1)?, min_guests: r.get(2)? },
                 r.get::<_, i64>(3)?,
                 r.get::<_, i64>(4)?,
-                r.get::<_, i64>(5)?,
             ))
         },
     )?;
-    let new_package = pricing.total(guests);
-    if pricing.per_guest_price == 0 || new_package == old_package {
+    // Kişi başı fiyatı olmayan paketin tutarı kişi sayısından bağımsızdır; olduğu gibi kalır.
+    let new_package = if pricing.per_guest_price == 0 { old_package } else { pricing.total(guests) };
+    let new_menu = menu_total(menu_per_guest, guests, pricing.min_guests);
+    let mut extras = extra_lines(tx, id)?;
+    for extra in &mut extras {
+        extra.price = extra.priced_for(guests, pricing.min_guests);
+    }
+    let change = set_prices(
+        tx,
+        id,
+        new_package,
+        new_menu,
+        Some(extras.iter().map(|x| x.price).sum()),
+        "Ek ödeme (davetli artışı)",
+        "Önce iade yapın, sonra davetli sayısını değiştirin.",
+        today,
+        event_date,
+    )?;
+    if change.is_some() {
+        write_extras(tx, id, &extras)?;
+    }
+    Ok(change)
+}
+
+/// Katalogdaki ek hizmeti satış fiyatıyla getirir (kişi başı kısım verilen kişi sayısıyla hesaplanır).
+pub(crate) fn catalog_extra(tx: &Connection, extra_id: &str, guests: i64, min_guests: i64) -> AppResult<ExtraLine> {
+    let mut line = tx
+        .query_row(
+            "SELECT name, group_name, price, per_guest_price FROM extras WHERE id = ?1 AND is_active = 1",
+            [extra_id],
+            |r| {
+                Ok(ExtraLine {
+                    extra_id: Some(extra_id.to_string()),
+                    name: r.get(0)?,
+                    group_name: r.get(1)?,
+                    price: 0,
+                    base_price: r.get(2)?,
+                    per_guest: r.get(3)?,
+                })
+            },
+        )
+        .optional()?
+        .ok_or_else(|| AppError::Rule("Seçilen ek hizmetlerden biri bulunamadı veya satıştan kaldırılmış.".into()))?;
+    line.price = line.base_price + menu_total(line.per_guest, guests, min_guests);
+    Ok(line)
+}
+
+/// Aynı seçenek grubundan (ör. "Pasta") yalnızca biri seçilebilir.
+pub(crate) fn check_groups(extras: &[ExtraLine]) -> AppResult<()> {
+    for (index, extra) in extras.iter().enumerate() {
+        if let Some(group) = &extra.group_name {
+            if extras[..index].iter().any(|x| x.group_name.as_ref() == Some(group)) {
+                return rule(format!("“{group}” seçeneklerinden yalnızca biri seçilebilir."));
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn extra_lines(conn: &Connection, reservation_id: &str) -> AppResult<Vec<ExtraLine>> {
+    let mut stmt = conn.prepare(
+        "SELECT extra_id, name, group_name, price, base_price, per_guest FROM reservation_extras
+         WHERE reservation_id = ?1 ORDER BY group_name IS NULL, group_name, name",
+    )?;
+    let rows = stmt.query_map([reservation_id], |r| {
+        Ok(ExtraLine {
+            extra_id: r.get(0)?,
+            name: r.get(1)?,
+            group_name: r.get(2)?,
+            price: r.get(3)?,
+            base_price: r.get(4)?,
+            per_guest: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+pub(crate) fn write_extras(tx: &Connection, reservation_id: &str, extras: &[ExtraLine]) -> AppResult<()> {
+    tx.execute("DELETE FROM reservation_extras WHERE reservation_id = ?1", [reservation_id])?;
+    for extra in extras {
+        tx.execute(
+            "INSERT INTO reservation_extras (id, reservation_id, extra_id, name, group_name, price, base_price, per_guest)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                new_id(),
+                reservation_id,
+                extra.extra_id,
+                extra.name,
+                extra.group_name,
+                extra.price,
+                extra.base_price,
+                extra.per_guest
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Paket tutarını, menü farkını ve (verildiyse) ek hizmetlerin toplamını yeni değerlere çeker; toplamı ve
+/// ödenmemiş taksitleri düzeltir. Ek hizmet satırlarını çağıran yazar. Hiçbiri değişmiyorsa hiçbir şey yapmaz.
+/// Değiştiyse (eski toplam, yeni toplam) döner.
+pub(crate) fn set_prices(
+    tx: &Transaction<'_>,
+    id: &str,
+    new_package: i64,
+    new_menu: i64,
+    new_extras: Option<i64>,
+    extra_label: &str,
+    refund_hint: &str,
+    today: NaiveDate,
+    event_date: NaiveDate,
+) -> AppResult<Option<(i64, i64)>> {
+    let (old_package, old_menu, discount, old_total) = tx.query_row(
+        "SELECT package_price, menu_price, discount, total FROM reservations WHERE id = ?1",
+        [id],
+        |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(3)?)),
+    )?;
+    let old_extras: i64 =
+        tx.query_row("SELECT COALESCE(SUM(price), 0) FROM reservation_extras WHERE reservation_id = ?1", [id], |r| r.get(0))?;
+    let extras = new_extras.unwrap_or(old_extras);
+    if new_package == old_package && new_menu == old_menu && extras == old_extras {
         return Ok(None);
     }
-    let extras: i64 =
-        tx.query_row("SELECT COALESCE(SUM(price), 0) FROM reservation_extras WHERE reservation_id = ?1", [id], |r| r.get(0))?;
-    let gross = new_package + extras;
+    let gross = new_package + new_menu + extras;
     if discount > gross {
         return rule(format!(
             "Yapılmış indirim ({}) yeni tutardan ({}) büyük kalıyor. Fiyat güncellenemedi.",
@@ -548,24 +662,28 @@ fn reprice(
     let paid = payments::net_paid(tx, id)?;
     if new_total < paid {
         return rule(format!(
-            "Müşteri şimdiye kadar {} ödedi; yeni tutar ({}) bundan az olamaz. Önce iade yapın, sonra davetli sayısını değiştirin.",
+            "Müşteri şimdiye kadar {} ödedi; yeni tutar ({}) bundan az olamaz. {refund_hint}",
             util::money(paid),
             util::money(new_total)
         ));
     }
-    let plan = adjust_plan(&installment_rows(tx, id)?, paid, new_total - old_total, today, event_date);
-    tx.execute("UPDATE reservations SET package_price = ?1, total = ?2 WHERE id = ?3", params![new_package, new_total, id])?;
+    let plan = adjust_plan(&installment_rows(tx, id)?, paid, new_total - old_total, extra_label, today, event_date);
+    tx.execute(
+        "UPDATE reservations SET package_price = ?1, menu_price = ?2, total = ?3 WHERE id = ?4",
+        params![new_package, new_menu, new_total, id],
+    )?;
     write_plan(tx, id, new_total, &plan)?;
     Ok(Some((old_total, new_total)))
 }
 
 /// Toplam `delta` kadar değiştiğinde ödeme planını düzeltir. Ödenmiş kısımlara dokunulmaz:
-/// artış ödenmemiş son taksite eklenir (hepsi ödenmişse yeni bir "Ek ödeme" açılır);
+/// artış ödenmemiş son taksite eklenir (hepsi ödenmişse `extra_label` adıyla yeni bir taksit açılır);
 /// azalış sondan başlayarak ödenmemiş tutarlardan düşülür, sıfırlanan taksit kaldırılır.
 pub fn adjust_plan(
     rows: &[(String, String, NaiveDate, i64)],
     paid: i64,
     delta: i64,
+    extra_label: &str,
     today: NaiveDate,
     event_date: NaiveDate,
 ) -> Vec<InstallmentInput> {
@@ -580,7 +698,7 @@ pub fn adjust_plan(
             None => {
                 let last_due = plan.last().map_or(today, |(item, _)| item.due_date);
                 let due = (event_date - Duration::days(7)).max(today).max(last_due);
-                plan.push((InstallmentInput { label: "Ek ödeme (davetli artışı)".into(), due_date: due, amount: delta }, 0));
+                plan.push((InstallmentInput { label: extra_label.into(), due_date: due, amount: delta }, 0));
             }
         }
     } else if delta < 0 {
@@ -651,7 +769,8 @@ pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<Reserv
     let summary = summary(conn, id, today)?;
     let row = conn.query_row(
         "SELECT r.package_name, r.package_price, r.discount, r.notes, r.cancel_reason, u.name, r.created_at, r.confirmed_at,
-                r.package_base_price, r.package_per_guest, r.package_min_guests
+                r.package_base_price, r.package_per_guest, r.package_min_guests,
+                r.menu_name, r.menu_per_guest, r.menu_price, r.menu_notes
          FROM reservations r JOIN users u ON u.id = r.created_by WHERE r.id = ?1",
         [id],
         |r| {
@@ -665,13 +784,16 @@ pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<Reserv
                 r.get::<_, String>(6)?,
                 r.get::<_, Option<String>>(7)?,
                 PackagePricing { base_price: r.get(8)?, per_guest_price: r.get(9)?, min_guests: r.get(10)? },
+                (
+                    r.get::<_, Option<String>>(11)?,
+                    r.get::<_, i64>(12)?,
+                    r.get::<_, i64>(13)?,
+                    r.get::<_, Option<String>>(14)?,
+                ),
             ))
         },
     )?;
-    let mut stmt = conn.prepare("SELECT name, price FROM reservation_extras WHERE reservation_id = ?1 ORDER BY name")?;
-    let extras = stmt
-        .query_map([id], |r| Ok(ExtraLine { name: r.get(0)?, price: r.get(1)? }))?
-        .collect::<Result<Vec<_>, _>>()?;
+    let extras = extra_lines(conn, id)?;
     let installments = allocate(&installment_rows(conn, id)?, summary.paid, today);
     let payments = payments::list_for_reservation(conn, id)?;
     Ok(ReservationDetail {
@@ -680,6 +802,11 @@ pub fn detail(conn: &Connection, id: &str, today: NaiveDate) -> AppResult<Reserv
         package_price: row.1,
         package_pricing: row.8,
         extras,
+        menu_name: row.9 .0,
+        menu_per_guest: row.9 .1,
+        menu_price: row.9 .2,
+        menu_items: menus::reservation_items(conn, id)?,
+        menu_notes: row.9 .3,
         discount: row.2,
         notes: row.3,
         cancel_reason: row.4,

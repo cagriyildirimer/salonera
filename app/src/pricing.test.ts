@@ -28,3 +28,27 @@ describe("kişi sayısına göre paket fiyatı", () => {
     expect(breakdownText(menu, 40_000_000)).toBe("350 kişi × 1.000 ₺ + 50.000 ₺ sabit");
   });
 });
+
+describe("seçenekler (ör. pasta) ve ek hizmetler", () => {
+  it("sabit ve kişi başı fiyat birlikte", async () => {
+    const { extraTotal, extraTariffText, extraBreakdown, extraLabel } = await import("./pricing");
+    const nuts = { price: 100_000, perGuestPrice: 2_000 };
+    expect(extraTotal(nuts, 250, 0)).toBe(600_000);
+    expect(extraTotal(nuts, 150, 200)).toBe(500_000); // paketin en az kişi sınırı
+    expect(extraTotal({ price: 400_000, perGuestPrice: 0 }, 900, 0)).toBe(400_000);
+    expect(extraTariffText(nuts)).toBe("1.000 ₺ + kişi başı 20 ₺");
+    const line = { extraId: "x", name: "Kuruyemiş", groupName: null, price: 700_000, basePrice: 100_000, perGuest: 2_000 };
+    expect(extraBreakdown(line)).toBe("300 kişi × 20 ₺ + 1.000 ₺ sabit");
+    expect(extraLabel({ name: "Çilekli pasta", groupName: "Pasta" })).toBe("Pasta: Çilekli pasta");
+  });
+
+  it("aynı gruptan tek seçim", async () => {
+    const { toggleOption } = await import("./components/SaleEditor");
+    const make = (id: string, groupName: string | null) =>
+      ({ id, name: id, description: null, price: 0, perGuestPrice: 0, minGuests: 0, groupName, isActive: true });
+    const all = [make("muz", "Pasta"), make("cilek", "Pasta"), make("foto", null)];
+    expect(toggleOption(["muz", "foto"], all[1], all)).toEqual(["foto", "cilek"]);
+    expect(toggleOption(["cilek"], all[1], all)).toEqual([]);
+    expect(toggleOption(["muz"], all[2], all)).toEqual(["muz", "foto"]);
+  });
+});

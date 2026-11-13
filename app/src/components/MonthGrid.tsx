@@ -49,13 +49,13 @@ export function MonthGrid({ month, events, selected, hallCount, onSelect, onOpen
     <div className={compact ? "mini-cal" : undefined}>
       <div className="cal-head">
         <button className="btn icon-btn" title="Önceki ay" onClick={() => onMonth(shiftMonth(month, -1))}><Icon name="left" /></button>
-        <div className="cal-title">{monthName(m.getMonth() + 1)} {m.getFullYear()}</div>
+        <div className="cal-title">{monthName(m.getMonth() + 1)}<span className="yr">{m.getFullYear()}</span></div>
         <button className="btn icon-btn" title="Sonraki ay" onClick={() => onMonth(shiftMonth(month, 1))}><Icon name="right" /></button>
         <span className="spacer" />
         <button className="btn" onClick={() => { onMonth(monthOf(now)); onSelect(now); }}>Bugün</button>
       </div>
       <div className="cal-grid">
-        {DOW.map((d) => <div key={d} className="cal-dow">{d}</div>)}
+        {DOW.map((d, i) => <div key={d} className={`cal-dow ${i >= 5 ? "we" : ""}`}>{d}</div>)}
         {days.map((day) => {
           const list = byDay.get(day) ?? [];
           const busyHalls = new Set(list.map((e) => e.hallId)).size;
@@ -66,6 +66,7 @@ export function MonthGrid({ month, events, selected, hallCount, onSelect, onOpen
             day.slice(0, 7) !== month.slice(0, 7) && "other",
             past && "past",
             day === now && "today",
+            parseDate(day).getDay() % 6 === 0 && "weekend",
             full && "full",
             day === selected && "selected",
           ].filter(Boolean).join(" ");

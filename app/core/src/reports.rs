@@ -3,8 +3,8 @@ use rusqlite::{params, Connection};
 
 use crate::error::{rule, AppResult};
 use crate::model::*;
-use crate::reservations::load_summaries;
-use crate::util::{fmt_date, fmt_datetime};
+use crate::reservations::{allocate, installment_rows, load_summaries};
+use crate::util::{fmt_date, fmt_datetime, parse_date, parse_datetime};
 use crate::Ctx;
 
 fn midnight(date: NaiveDate) -> String {
@@ -121,4 +121,86 @@ pub fn hall_usage(conn: &Connection, ctx: &Ctx, from: NaiveDate, to: NaiveDate) 
         Ok(HallUsageRow { hall_name: r.get(0)?, event_count: r.get(1)?, sales: r.get(2)? })
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Satış analizi: organizasyon tarihi [from, to] aralığında olan bütün kayıtlar, paket, menü ve ek hizmetleriyle.
+pub fn sales(conn: &Connection, ctx: &Ctx, from: NaiveDate, to: NaiveDate) -> AppResult<Vec<SalesRow>> {
+    ctx.user.require_admin()?;
+    let end = midnight(to.succ_opt().unwrap_or(to));
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.no, r.starts_at, h.name, c.full_name, r.kind, r.guest_count, r.status,
+                r.package_name, r.package_price, r.menu_name, r.menu_price, r.discount, r.total,
+                COALESCE((SELECT SUM(CASE WHEN p.is_refund = 1 THEN -p.amount ELSE p.amount END)
+                          FROM payments p WHERE p.reservation_id = r.id AND p.is_cancelled = 0), 0),
+                r.created_at, COALESCE(u.name, ''), r.cancel_reason
+         FROM reservations r
+         JOIN halls h ON h.id = r.hall_id
+         JOIN customers c ON c.id = r.customer_id
+         LEFT JOIN users u ON u.id = r.created_by
+         WHERE r.starts_at >= ?1 AND r.starts_at < ?2
+         ORDER BY r.starts_at",
+    )?;
+    let rows = stmt.query_map(params![midnight(from), end], |r| {
+        Ok(SalesRow {
+            id: r.get(0)?,
+            no: r.get(1)?,
+            date: parse_datetime(&r.get::<_, String>(2)?).date(),
+            hall_name: r.get(3)?,
+            customer_name: r.get(4)?,
+            kind: r.get(5)?,
+            guest_count: r.get(6)?,
+            status: r.get(7)?,
+            package_name: r.get(8)?,
+            package_price: r.get(9)?,
+            menu_name: r.get(10)?,
+            menu_price: r.get(11)?,
+            discount: r.get(12)?,
+            total: r.get(13)?,
+            paid: r.get(14)?,
+            extras: Vec::new(),
+            created_on: parse_date(&r.get::<_, String>(15)?[..10]),
+            created_by: r.get(16)?,
+            cancel_reason: r.get(17)?,
+        })
+    })?;
+    let mut list: Vec<SalesRow> = rows.collect::<Result<_, _>>()?;
+    let mut extras = conn.prepare("SELECT name, group_name, price FROM reservation_extras WHERE reservation_id = ?1")?;
+    for row in &mut list {
+        row.extras = extras
+            .query_map([&row.id], |r| Ok(SalesExtra { name: r.get(0)?, group_name: r.get(1)?, price: r.get(2)? }))?
+            .collect::<Result<_, _>>()?;
+    }
+    Ok(list)
+}
+
+/// Tahsilat takvimi: kesin kayıtlarda kapanmamış her taksit, vadesine göre sıralı.
+pub fn due(conn: &Connection, ctx: &Ctx) -> AppResult<Vec<DueRow>> {
+    ctx.user.require_admin()?;
+    let today = ctx.today();
+    let mut out = Vec::new();
+    for r in load_summaries(conn, "r.status = 'kesin' ORDER BY r.starts_at", &[], today)? {
+        if r.remaining <= 0 {
+            continue;
+        }
+        for i in allocate(&installment_rows(conn, &r.id)?, r.paid, today) {
+            if i.paid >= i.amount {
+                continue;
+            }
+            out.push(DueRow {
+                reservation_id: r.id.clone(),
+                no: r.no.clone(),
+                customer_name: r.customer_name.clone(),
+                customer_phone: r.customer_phone.clone(),
+                event_date: r.date,
+                hall_name: r.hall_name.clone(),
+                label: i.label,
+                due_date: i.due_date,
+                amount: i.amount,
+                paid: i.paid,
+                state: i.state,
+            });
+        }
+    }
+    out.sort_by_key(|x| x.due_date);
+    Ok(out)
 }

@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Icon } from "../components/Icon";
 import { gridRange, monthOf, MonthGrid } from "../components/MonthGrid";
 import {
-  emptySale, PackagePicker, PaymentPlanner, saleTotals, toSaleInput, type SaleState,
+  emptySale, PackagePicker, PaymentPlanner, saleTotals, toSaleInput, TotalBar, type SaleState,
 } from "../components/SaleEditor";
 import { Alert, Empty, errorText, Field, Loading, NumberInput, TimeSelect, useLoad } from "../components/ui";
 import { dateWithDay, kindLabels, methodLabels, tl, today } from "../format";
@@ -47,8 +47,8 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
 
   const halls = useLoad(() => api.halls());
   const catalog = useLoad(async () => {
-    const [packages, extras, settings] = await Promise.all([api.packages(), api.extras(), api.settings()]);
-    return { packages, extras, settings };
+    const [packages, extras, menus, settings] = await Promise.all([api.packages(), api.extras(), api.menus(), api.settings()]);
+    return { packages, extras, menus, settings };
   });
   const events = useLoad(() => {
     const { from, to } = gridRange(month);
@@ -93,7 +93,8 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
 
   const packages = catalog.data?.packages ?? [];
   const extras = catalog.data?.extras ?? [];
-  const { pkg, packagePrice, total } = saleTotals(sale, packages, extras, guests);
+  const menus = catalog.data?.menus ?? [];
+  const { pkg, packagePrice, menu, menuPrice, total } = saleTotals(sale, packages, extras, guests, menus);
   const hall = availability?.find((h) => h.hallId === hallId) ?? null;
   const skipsPayment = isOption;
 
@@ -187,16 +188,17 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
     if (isOption) {
       rows.push(["Kayıt türü", `Ön rezervasyon — tarih ${optionDays} gün tutulur`]);
     } else {
-      const extraNames = extras.filter((e) => sale.extraIds.includes(e.id)).map((e) => e.name);
+      const extraNames = extras.filter((e) => sale.extraIds.includes(e.id)).map((e) => (e.groupName ? `${e.groupName}: ${e.name}` : e.name));
       rows.push(["Kayıt türü", "Kesin kayıt (sözleşme hazırlanır)"]);
       rows.push(["Paket", pkg ? `${pkg.name} · ${tl(packagePrice)}${pkg.perGuestPrice > 0 ? ` (${billedGuests(pricingOf(pkg), guests)} kişi)` : ""}` : "—"]);
+      rows.push(["Yemek menüsü", menu ? `${menu.name}${menuPrice > 0 ? ` · +${tl(menuPrice)}` : ""}` : "Sonra seçilecek"]);
       rows.push(["Ek hizmetler", extraNames.length ? extraNames.join(", ") : "Yok"]);
       if (sale.discount) rows.push(["İndirim", tl(sale.discount)]);
       rows.push(["Toplam tutar", tl(total)]);
       if (sale.takeNow && sale.deposit > 0) rows.push(["Bugün alınan kapora", `${tl(Math.min(sale.deposit, total))} · ${methodLabels[sale.method]}`]);
     }
     return rows;
-  }, [date, start, end, hall, kind, guests, customerMode, customerName, newCustomer.phone, selectedCustomer, isOption, optionDays, extras, sale, pkg, packagePrice, total]);
+  }, [date, start, end, hall, kind, guests, customerMode, customerName, newCustomer.phone, selectedCustomer, isOption, optionDays, extras, sale, pkg, packagePrice, menu, menuPrice, total]);
 
   if (halls.loading || catalog.loading) return <Loading />;
 
@@ -355,7 +357,7 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
                   </Field>
                 </div>
               ) : (
-                <PackagePicker sale={sale} onChange={setSale} packages={packages} extras={extras} guests={guests} />
+                <PackagePicker sale={sale} onChange={setSale} packages={packages} extras={extras} menus={menus} guests={guests} />
               )}
             </div>
           )}
@@ -386,6 +388,7 @@ export function Wizard({ date: initialDate, hallId: initialHall, customerId }: {
           <Icon name="back" size={18} /> {step === 0 ? "Vazgeç" : "Geri"}
         </button>
         <div style={{ flex: 1 }}>{error && <Alert kind="danger">{error}</Alert>}</div>
+        {step >= 2 && !isOption && pkg && <TotalBar total={total} />}
         <button className="btn btn-primary" style={{ minWidth: 220 }} onClick={next} disabled={saving}>
           {saving ? "Kaydediliyor…" : step === 4 ? "Onayla ve Kaydet" : "Devam Et"} {!saving && <Icon name={step === 4 ? "check" : "next"} size={19} />}
         </button>

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Salonera",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.salonera.app",
   "build": {
     "frontendDist": "../dist",
@@ -47,7 +47,12 @@
         ],
         "installMode": "currentUser",
         "displayLanguageSelector": false
+      },
+      "webviewInstallMode": {
+        "type": "embedBootstrapper",
+        "silent": true
       }
-    }
+    },
+    "copyright": "© 2026 Salonera"
   }
 }

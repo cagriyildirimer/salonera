@@ -147,8 +147,9 @@ pub struct SaveHallRequest {
     pub is_active: bool,
 }
 
-/// Paket ve ek hizmet aynı yapıdadır. Paketlerde `price` sabit tutardır; üzerine
-/// `per_guest_price × max(davetli, min_guests)` eklenir. Ek hizmetlerde bu iki alan 0'dır.
+/// Paket ve ek hizmet aynı yapıdadır. `price` sabit tutardır; üzerine `per_guest_price × kişi` eklenir.
+/// Paketlerde kişi = max(davetli, min_guests). Ek hizmetlerde `min_guests` 0'dır; kişi sayısı
+/// paketin "en az kişi" sınırıyla hesaplanır. `group_name` yalnızca ek hizmetlerde: aynı gruptan tek seçim.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProductDto {
@@ -158,6 +159,7 @@ pub struct ProductDto {
     pub price: i64,
     pub per_guest_price: i64,
     pub min_guests: i64,
+    pub group_name: Option<String>,
     pub is_active: bool,
 }
 
@@ -171,6 +173,9 @@ pub struct SaveProductRequest {
     pub per_guest_price: i64,
     #[serde(default)]
     pub min_guests: i64,
+    /// Ek hizmetin seçenek grubu (ör. "Pasta"); boşsa bağımsız ek hizmettir.
+    #[serde(default)]
+    pub group_name: Option<String>,
     pub is_active: bool,
 }
 
@@ -192,6 +197,61 @@ impl PackagePricing {
     pub fn total(&self, guests: i64) -> i64 {
         self.base_price + self.per_guest_price * self.billed_guests(guests)
     }
+}
+
+/// Menü farkının çarpıldığı kişi sayısı: davetli, paketin "en az kişi" sınırının altındaysa sınır kadar.
+pub fn menu_total(per_guest_price: i64, guests: i64, min_guests: i64) -> i64 {
+    per_guest_price * guests.max(min_guests)
+}
+
+// ---------------- Yemek menüsü ----------------
+/// Menüdeki bir yemek, ör. "Ana yemek" – "Kuzu tandır".
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuDish {
+    pub course: String,
+    pub name: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuDto {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    /// Kişi başı fark (0 = paket fiyatına dahil).
+    pub per_guest_price: i64,
+    pub is_active: bool,
+    pub items: Vec<MenuDish>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveMenuRequest {
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub per_guest_price: i64,
+    pub is_active: bool,
+    #[serde(default)]
+    pub items: Vec<MenuDish>,
+}
+
+/// Rezervasyonda katalogdan menü seçmek (veya `menu_id: null` ile menüyü kaldırmak).
+/// Fiyat farkı toplam tutara ve ödenmemiş taksitlere yansır.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelectMenuRequest {
+    pub menu_id: Option<String>,
+}
+
+/// Rezervasyona kopyalanmış menünün o düğüne özel içeriği (fiyatı değiştirmez).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveReservationMenuRequest {
+    #[serde(default)]
+    pub items: Vec<MenuDish>,
+    pub notes: Option<String>,
 }
 
 // ---------------- Müşteri ----------------
@@ -254,8 +314,34 @@ pub struct ReservationSummary {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtraLine {
+    /// Katalogdaki ek hizmet (eski kayıtlarda boş olabilir).
+    #[serde(default)]
+    pub extra_id: Option<String>,
     pub name: String,
+    #[serde(default)]
+    pub group_name: Option<String>,
+    /// Kişi sayısıyla hesaplanmış tutar (sözleşmeye yazılan).
     pub price: i64,
+    /// Satış anındaki sabit tutar ve kişi başı fiyat.
+    #[serde(default)]
+    pub base_price: i64,
+    #[serde(default)]
+    pub per_guest: i64,
+}
+
+impl ExtraLine {
+    /// Tutarı verilen kişi sayısıyla yeniden hesaplar (kişi başı fiyatı yoksa değişmez).
+    pub fn priced_for(&self, guests: i64, min_guests: i64) -> i64 {
+        if self.per_guest == 0 { self.price } else { self.base_price + menu_total(self.per_guest, guests, min_guests) }
+    }
+}
+
+/// Kesin kayıtta ek hizmetleri / seçenekleri değiştirmek (ör. tadımdan sonra pasta değişti).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeExtrasRequest {
+    #[serde(default)]
+    pub extra_ids: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -297,6 +383,15 @@ pub struct ReservationDetail {
     /// Satış anındaki paket fiyatlandırması (paket sonradan değişse de bu kalır).
     pub package_pricing: PackagePricing,
     pub extras: Vec<ExtraLine>,
+    /// Seçilen yemek menüsü (satış anındaki adı ve kişi başı farkı); yoksa `None`.
+    pub menu_name: Option<String>,
+    pub menu_per_guest: i64,
+    /// Kişi sayısıyla hesaplanmış menü farkı (sözleşmeye yazılan).
+    pub menu_price: i64,
+    /// Bu düğünün yemekleri (katalogdan kopyalanıp düzenlenmiş olabilir).
+    pub menu_items: Vec<MenuDish>,
+    /// Mutfağa notlar: alerji, çocuk / vejetaryen menü sayısı…
+    pub menu_notes: Option<String>,
     pub discount: i64,
     pub notes: Option<String>,
     pub cancel_reason: Option<String>,
@@ -330,6 +425,9 @@ pub struct SaleInput {
     pub package_id: String,
     #[serde(default)]
     pub extra_ids: Vec<String>,
+    /// Yemek menüsü (isteğe bağlı; sonradan da seçilebilir).
+    #[serde(default)]
+    pub menu_id: Option<String>,
     #[serde(default)]
     pub discount: i64,
     /// Boş bırakılırsa toplam tutar düğünden 7 gün önceye tek ödeme olarak planlanır.
@@ -446,6 +544,57 @@ pub struct YearReport {
     pub total_sales: i64,
     pub total_collected: i64,
     pub total_refunded: i64,
+}
+
+/// Satış analizi satırı: tarihi aralıkta olan her kayıt (iptal ve ön rezervasyonlar dahil).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalesRow {
+    pub id: String,
+    pub no: String,
+    pub date: NaiveDate,
+    pub hall_name: String,
+    pub customer_name: String,
+    pub kind: EventKind,
+    pub guest_count: i64,
+    pub status: Status,
+    pub package_name: Option<String>,
+    pub package_price: i64,
+    pub menu_name: Option<String>,
+    pub menu_price: i64,
+    pub discount: i64,
+    pub total: i64,
+    pub paid: i64,
+    pub extras: Vec<SalesExtra>,
+    /// Kaydın açıldığı gün.
+    pub created_on: NaiveDate,
+    pub created_by: String,
+    pub cancel_reason: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalesExtra {
+    pub name: String,
+    pub group_name: Option<String>,
+    pub price: i64,
+}
+
+/// Tahsilat takvimi: kesin kayıtların henüz kapanmamış taksitleri (gecikenler dahil).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DueRow {
+    pub reservation_id: String,
+    pub no: String,
+    pub customer_name: String,
+    pub customer_phone: String,
+    pub event_date: NaiveDate,
+    pub hall_name: String,
+    pub label: String,
+    pub due_date: NaiveDate,
+    pub amount: i64,
+    pub paid: i64,
+    pub state: InstallmentState,
 }
 
 #[derive(Serialize)]
